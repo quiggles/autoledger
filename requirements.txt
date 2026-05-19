@@ -1,0 +1,6 @@
+# AutoLedger Python dependencies
+# Pin minor versions for reproducible builds
+
+flask==3.0.3       # Web framework
+gunicorn==22.0.0   # Production WSGI server (used in Docker)
+python-dateutil==2.9.0

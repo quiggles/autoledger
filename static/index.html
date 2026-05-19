@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<!--
+  AutoLedger — index.html  v1.7.1
+  ================================
+  Changelog:
+    v1.7.1  Odometer on dashboard/entry form; sort controls on entries;
+            Enter key submits add form; unsaved settings warning;
+            vehicle notes field; version in sidebar footer;
+            favicon; fuel fields fully editable in edit modal;
+            ID-based MPG matching; efficiency respects period filter
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutoLedger</title>
+  <link rel="icon" href="/favicon.ico" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/styles.css?v=1.8.6">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- ════ SIDEBAR ════════════════════════════════════════════════════════════ -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-logo">Auto<em>Ledger</em></div>
+      <div class="brand-sub">Car Cost Tracker</div>
+    </div>
+
+    <div class="vehicle-switcher" id="vehicle-switcher">
+      <div class="vs-label">Active vehicle</div>
+      <div class="vs-current" id="vs-current" onclick="toggleVehicleDropdown()">
+        <span class="vs-avatar" id="vs-avatar">?</span>
+        <div class="vs-info">
+          <span class="vs-name" id="vs-name">Select vehicle</span>
+          <span class="vs-reg"  id="vs-reg">—</span>
+        </div>
+        <span class="vs-caret">▾</span>
+      </div>
+      <div class="vs-dropdown" id="vs-dropdown"></div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <button class="nav-item active" onclick="showPage('dashboard')" id="nav-dashboard">
+        <span class="nav-icon">📊</span><span>Dashboard</span>
+      </button>
+      <button class="nav-item" onclick="showPage('entries')" id="nav-entries">
+        <span class="nav-icon">📋</span><span>Entries</span>
+      </button>
+      <button class="nav-item" onclick="showPage('reports')" id="nav-reports">
+        <span class="nav-icon">📈</span><span>Reports</span>
+      </button>
+      <button class="nav-item" onclick="showPage('import')" id="nav-import">
+        <span class="nav-icon">↕</span><span>Import / Export</span>
+      </button>
+      <button class="nav-item" onclick="showPage('vehicles')" id="nav-vehicles">
+        <span class="nav-icon">🚗</span><span>Vehicles</span>
+      </button>
+      <button class="nav-item" onclick="showPage('settings')" id="nav-settings">
+        <span class="nav-icon">⚙</span><span>Settings</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()">
+        <span id="theme-icon">☾</span>
+        <span id="theme-label">Dark mode</span>
+      </button>
+      <div class="sidebar-version">v1.8.6</div>
+    </div>
+  </aside>
+
+  <!-- ════ MAIN ════════════════════════════════════════════════════════════════ -->
+  <main class="main">
+
+    <!-- ── Dashboard ──────────────────────────────────────────────────────── -->
+    <div class="page active" id="page-dashboard">
+      <div class="page-header">
+        <div>
+          <div class="page-title" id="dashboard-title">Dashboard</div>
+          <div class="page-subtitle" id="dashboard-sub">Your car running costs at a glance</div>
+        </div>
+        <!-- Odometer strip -->
+        <div class="odometer-strip" id="odometer-strip" style="display:none">
+          <span class="odo-icon">📍</span>
+          <div>
+            <div class="odo-label">Current odometer</div>
+            <div class="odo-value"><span id="odo-reading">—</span> <span class="odo-unit">mi</span></div>
+          </div>
+          <div style="margin-left:1rem">
+            <div class="odo-label">Last recorded</div>
+            <div class="odo-date" id="odo-date">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="summary-grid" id="summary-grid"></div>
+
+        <!-- Year-vs-year comparison — rendered dynamically, hidden when no data -->
+        <div class="annual-card" id="annual-card" style="display:none"></div>
+
+        <!-- Add entry form -->
+        <div class="panel">
+          <div class="panel-header"><div class="panel-title">Add New Entry</div></div>
+          <div class="form-row" id="add-form-row">
+            <div class="field">
+              <label>Category</label>
+              <select id="cat" onchange="onCategoryChange()"></select>
+            </div>
+            <div class="field">
+              <label id="amount-label">Amount</label>
+              <input type="number" id="amount" placeholder="0.00" step="0.01" min="0"
+                     onkeydown="if(event.key==='Enter') addEntry()">
+            </div>
+            <div class="field">
+              <label>Date</label>
+              <input type="date" id="date" onkeydown="if(event.key==='Enter') addEntry()">
+            </div>
+            <div class="field">
+              <label>Note <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+              <input type="text" id="note" placeholder="e.g. Full tank, BP garage…"
+                     onkeydown="if(event.key==='Enter') addEntry()">
+            </div>
+            <button class="btn btn-primary" onclick="addEntry()"><span>+</span> Add</button>
+
+            <!-- Fuel extra fields -->
+            <div class="fuel-fields" id="fuel-fields">
+              <div class="field">
+                <label>Litres</label>
+                <input type="number" id="litres" placeholder="e.g. 42.5" step="0.001" min="0"
+                       oninput="updatePplDisplay()" onkeydown="if(event.key==='Enter') addEntry()">
+              </div>
+              <div class="field">
+                <label>Odometer (miles) <span id="odo-hint" class="odo-hint"></span></label>
+                <input type="number" id="odometer" placeholder="e.g. 54321" step="1" min="0"
+                       onkeydown="if(event.key==='Enter') addEntry()">
+              </div>
+              <div class="field">
+                <label>Price per litre</label>
+                <input type="number" id="ppl-display" placeholder="auto" step="0.001" min="0" readonly
+                       style="background:var(--surface2);cursor:default" title="Calculated from amount ÷ litres">
+              </div>
+              <div class="field" style="display:flex;align-items:flex-end">
+                <button type="button" class="tank-toggle" id="tank-toggle" onclick="toggleFullTank()">
+                  <span class="tank-icon">⛽</span> Full tank
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent entries -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Recent Entries</div>
+            <button class="btn btn-ghost btn-sm" onclick="showPage('entries')">View all →</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Category</th><th>Cost</th><th>Litres</th><th>Δ mi.</th><th>Unit Cost</th><th>Note</th><th></th><th></th></tr></thead>
+              <tbody id="recent-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Entries ─────────────────────────────────────────────────────────── -->
+    <div class="page" id="page-entries">
+      <div class="page-header">
+        <div class="page-title">All Entries</div>
+        <div class="page-subtitle">Full cost history for the active vehicle</div>
+      </div>
+      <div class="page-body">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="filter-pill-group" id="filter-pills"></div>
+            <div class="table-controls">
+              <input class="search-input" id="search-input" placeholder="🔍 Search notes…" oninput="_expandedRows.clear(); renderEntriesTable()">
+              <select class="filter-select" id="sort-select" onchange="_expandedRows.clear(); renderEntriesTable()" title="Sort by">
+                <option value="date-desc">Date ↓</option>
+                <option value="date-asc">Date ↑</option>
+                <option value="amount-desc">Amount ↓</option>
+                <option value="amount-asc">Amount ↑</option>
+                <option value="category-asc">Category A–Z</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Date</th><th>Category</th><th>Cost</th><th>Litres</th><th>Δ mi.</th><th>Unit Cost</th><th>Note</th><th></th><th></th></tr></thead>
+              <tbody id="entries-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Reports ─────────────────────────────────────────────────────────── -->
+    <div class="page" id="page-reports">
+      <div class="page-header">
+        <div class="page-title">Reports</div>
+        <div class="page-subtitle">Spending trends and fuel efficiency analysis</div>
+      </div>
+      <div class="page-body">
+        <div class="report-controls">
+          <span style="font-size:0.72rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Period:</span>
+          <button class="report-period-btn" onclick="setReportPeriod(3)"  id="rp-3">3 months</button>
+          <button class="report-period-btn" onclick="setReportPeriod(6)"  id="rp-6">6 months</button>
+          <button class="report-period-btn active" onclick="setReportPeriod(12)" id="rp-12">12 months</button>
+          <button class="report-period-btn" onclick="setReportPeriod(0)"  id="rp-0">All time</button>
+        </div>
+        <div class="report-stats" id="report-kpis"></div>
+        <div class="reports-grid">
+          <div class="report-card full-width">
+            <div class="report-card-title">Monthly Spend</div>
+            <div class="report-card-sub">Total cost broken down by category each month</div>
+            <div class="chart-wrap tall"><canvas id="chart-monthly"></canvas></div>
+          </div>
+          <div class="report-card">
+            <div class="report-card-title">Spend by Category</div>
+            <div class="report-card-sub">Proportion of total cost per category</div>
+            <div class="chart-wrap"><canvas id="chart-category"></canvas></div>
+          </div>
+          <div class="report-card">
+            <div class="report-card-title">Cumulative Spend</div>
+            <div class="report-card-sub">Running total over the selected period</div>
+            <div class="chart-wrap"><canvas id="chart-cumulative"></canvas></div>
+          </div>
+          <div class="report-card">
+            <div class="report-card-title">Fuel Efficiency — MPG</div>
+            <div class="report-card-sub">Miles per gallon between consecutive full-tank fills</div>
+            <div class="chart-wrap"><canvas id="chart-mpg"></canvas></div>
+          </div>
+          <div class="report-card">
+            <div class="report-card-title">Fuel Efficiency — km/L</div>
+            <div class="report-card-sub">Kilometres per litre between consecutive full-tank fills</div>
+            <div class="chart-wrap"><canvas id="chart-kpl"></canvas></div>
+          </div>
+          <div class="report-card full-width">
+            <div class="report-card-title">Price per Litre Trend</div>
+            <div class="report-card-sub">Cost per litre at each recorded fuel stop</div>
+            <div class="chart-wrap"><canvas id="chart-ppl"></canvas></div>
+          </div>
+          <div class="report-card">
+            <div class="report-card-title">Cost per Mile</div>
+            <div class="report-card-sub">Total running cost divided by miles driven each month</div>
+            <div class="chart-wrap"><canvas id="chart-cpm"></canvas></div>
+          </div>
+          <div class="report-card">
+            <div class="report-card-title">Fill-up Interval</div>
+            <div class="report-card-sub">Days between fuel stops — reveals changes in vehicle usage</div>
+            <div class="chart-wrap"><canvas id="chart-interval"></canvas></div>
+          </div>
+          <div class="report-card full-width">
+            <div class="report-card-title">Fuel vs Other Costs</div>
+            <div class="report-card-sub">Monthly fuel spend vs all other costs — shows when big services hit</div>
+            <div class="chart-wrap tall"><canvas id="chart-fuelvsother"></canvas></div>
+          </div>
+
+          <!-- Annual breakdown table — no chart needed, pure data -->
+          <div class="report-card full-width" id="annual-breakdown-card">
+            <div class="report-card-title">Annual Breakdown</div>
+            <div class="report-card-sub">Year-by-year summary — useful for budgeting and tax records</div>
+            <div id="annual-table-wrap" style="margin-top:0.75rem;overflow-x:auto"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Import / Export ────────────────────────────────────────────────── -->
+    <div class="page" id="page-import">
+      <div class="page-header">
+        <div class="page-title">Import / Export</div>
+        <div class="page-subtitle">Back up your data or bring in records from other apps</div>
+      </div>
+      <div class="page-body">
+        <div class="panel">
+          <div class="io-grid">
+            <div class="io-block">
+              <div class="io-icon">⬇</div>
+              <div class="io-block-title">Export AutoLedger JSON</div>
+              <div class="io-block-desc">Download <strong>all vehicles and records</strong> as a JSON backup.</div>
+              <button class="btn btn-ghost" onclick="exportJSON()">Download backup…</button>
+            </div>
+            <div class="io-block">
+              <div class="io-icon">⬆</div>
+              <div class="io-block-title">Import AutoLedger JSON</div>
+              <div class="io-block-desc">Restore from a previously exported <strong>AutoLedger JSON</strong> file. Duplicates skipped.</div>
+              <button class="btn btn-ghost" onclick="document.getElementById('import-json-file').click()">Choose file…</button>
+              <input type="file" id="import-json-file" accept=".json" onchange="importJSON(this)">
+              <div class="io-result" id="json-result"></div>
+            </div>
+            <div class="io-block">
+              <div class="io-icon">⬆</div>
+              <div class="io-block-title">Import LubeLogger CSV</div>
+              <div class="io-block-desc">Import from a <strong>LubeLogger CSV export</strong> into the active vehicle. Type auto-detected.</div>
+              <button class="btn btn-ghost" onclick="document.getElementById('import-lub-file').click()">Choose CSV…</button>
+              <input type="file" id="import-lub-file" accept=".csv" onchange="importLubeLogger(this)">
+              <div class="io-result" id="lub-result"></div>
+            </div>
+            <div class="io-block">
+              <div class="io-icon">🔄</div>
+              <div class="io-block-title">Re-import LubeLogger CSV</div>
+              <div class="io-block-desc"><strong>Deletes existing LubeLogger records</strong> for the active vehicle then re-imports — use to refresh field data.</div>
+              <button class="btn btn-ghost" onclick="document.getElementById('reimport-lub-file').click()">Re-import CSV…</button>
+              <input type="file" id="reimport-lub-file" accept=".csv" onchange="reimportLubeLogger(this)">
+              <div class="io-result" id="relub-result"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Vehicles ───────────────────────────────────────────────────────── -->
+    <div class="page" id="page-vehicles">
+      <div class="page-header">
+        <div class="page-title">Vehicles</div>
+        <div class="page-subtitle">Manage the cars you're tracking</div>
+      </div>
+      <div class="page-body">
+        <div id="first-run-prompt" class="panel" style="display:none;text-align:center;padding:2rem">
+          <div style="font-size:2.5rem;margin-bottom:0.75rem">🚗</div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1.1rem;margin-bottom:0.4rem">Add your first vehicle to get started</div>
+          <div style="font-size:0.82rem;color:var(--muted);margin-bottom:1.25rem">Fill in the form below.</div>
+        </div>
+        <div class="vehicle-grid" id="vehicle-grid"></div>
+        <div class="panel" id="vehicle-form-panel">
+          <div class="panel-header"><div class="panel-title" id="vehicle-form-title">Add New Vehicle</div></div>
+          <div class="vehicle-form-grid">
+            <div class="field"><label>Nickname <span style="color:var(--danger)">*</span></label><input type="text" id="vf-name" placeholder="e.g. Daily Driver"></div>
+            <div class="field"><label>Make</label><input type="text" id="vf-make" placeholder="e.g. Vauxhall"></div>
+            <div class="field"><label>Model</label><input type="text" id="vf-model" placeholder="e.g. Insignia"></div>
+            <div class="field"><label>Year</label><input type="number" id="vf-year" placeholder="e.g. 2018" min="1886" max="2099"></div>
+            <div class="field"><label>Colour</label><input type="text" id="vf-colour" placeholder="e.g. Midnight Blue"></div>
+            <div class="field"><label>Registration</label><input type="text" id="vf-reg" placeholder="e.g. HV68 TCZ" style="text-transform:uppercase"></div>
+            <div class="field" style="grid-column:1/-1"><label>Notes <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional — e.g. company car, sold 2025)</span></label>
+              <input type="text" id="vf-notes" placeholder="Any notes about this vehicle…"></div>
+          </div>
+          <div style="display:flex;gap:0.5rem;margin-top:1rem;align-items:center">
+            <button class="btn btn-primary" onclick="submitVehicleForm()" id="vf-submit-btn">Add Vehicle</button>
+            <button class="btn btn-ghost" onclick="cancelVehicleEdit()" id="vf-cancel-btn" style="display:none">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Settings ───────────────────────────────────────────────────────── -->
+    <div class="page" id="page-settings">
+      <div class="page-header">
+        <div class="page-title">Settings</div>
+        <div class="page-subtitle">Customise currency and cost categories</div>
+      </div>
+      <div class="page-body">
+        <div class="settings-grid">
+          <div class="panel">
+            <div class="panel-header"><div class="panel-title">Currency</div></div>
+            <div class="settings-section-title">Common currencies</div>
+            <div class="currency-grid" id="currency-grid"></div>
+            <div class="settings-section-title" style="margin-top:0.75rem">Custom symbol</div>
+            <div class="custom-currency-row">
+              <input type="text" id="custom-currency" placeholder="e.g. kr" maxlength="4">
+              <button class="btn btn-ghost btn-sm" onclick="setCustomCurrency()">Use this</button>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><div class="panel-title">Cost Categories</div></div>
+            <div class="settings-section-title">Current categories</div>
+            <div class="category-list" id="category-list"></div>
+            <div class="settings-section-title" style="margin-top:0.5rem">Add category</div>
+            <div class="add-category-row">
+              <input type="text" id="new-cat-input" placeholder="New category name…" maxlength="40"
+                     onkeydown="if(event.key==='Enter') addCategory()">
+              <button class="btn btn-primary btn-sm" onclick="addCategory()">+ Add</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-save-bar">
+          <button class="btn btn-primary" onclick="saveSettings()">Save settings</button>
+          <span class="settings-saved-msg" id="settings-saved-msg">✓ Settings saved</span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ── Edit cost modal ──────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Edit Entry</div>
+      <button class="modal-close" onclick="closeEditModal()">✕</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+      <div class="field"><label>Category</label><select id="edit-cat" onchange="onEditCategoryChange()"></select></div>
+      <div class="field"><label id="edit-amount-label">Amount</label><input type="number" id="edit-amount" step="0.01" min="0"></div>
+      <div class="field"><label>Date</label><input type="date" id="edit-date"></div>
+      <div class="field"><label>Note</label><input type="text" id="edit-note" placeholder="Optional note"></div>
+    </div>
+    <!-- Fuel extras — shown when category = Fuel -->
+    <div id="edit-fuel-fields" style="display:none;margin-top:0.5rem">
+      <div style="font-size:0.62rem;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:0.6rem">Fuel details</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.75rem;align-items:end">
+        <div class="field"><label>Litres</label><input type="number" id="edit-litres" step="0.001" min="0" placeholder="e.g. 42.5"></div>
+        <div class="field"><label>Odometer (miles)</label><input type="number" id="edit-odometer" step="1" min="0" placeholder="e.g. 54321"></div>
+        <div class="field" style="display:flex;align-items:flex-end">
+          <button type="button" class="tank-toggle" id="edit-tank-toggle" onclick="toggleEditFullTank()">
+            <span class="tank-icon">⛽</span> Full tank
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeEditModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEdit()">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Delete vehicle modal ────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="delete-vehicle-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Delete Vehicle</div>
+      <button class="modal-close" onclick="closeDeleteVehicleModal()">✕</button>
+    </div>
+    <p style="font-size:0.88rem;color:var(--text2);line-height:1.6">
+      Do you also want to delete all cost records for <strong id="dv-name"></strong>?
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeDeleteVehicleModal()">Cancel</button>
+      <button class="btn btn-ghost" onclick="confirmDeleteVehicle(false)">Delete vehicle only</button>
+      <button class="btn btn-danger-solid" onclick="confirmDeleteVehicle(true)">Delete vehicle + all costs</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="/static/js/app.js?v=1.8.6"></script>
+</body>
+</html>

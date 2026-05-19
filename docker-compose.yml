@@ -1,0 +1,47 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# AutoLedger — docker-compose.yml
+#
+# Works on both Mac (local dev) and Synology NAS without editing this file.
+# The data path is controlled by the DATA_PATH variable in the .env file
+# that sits alongside this compose file.
+#
+# ── Mac ───────────────────────────────────────────────────────────────────────
+# The .env file ships with DATA_PATH=./data (relative to this folder).
+# Just run: docker compose up --build
+# App will be at: http://localhost:5050
+#
+# ── Synology NAS (DS923+, DSM 7.x) ───────────────────────────────────────────
+# Edit .env and set: DATA_PATH=/volume1/docker/autoledger/data
+# Save this file to: /volume1/docker/autoledger/docker-compose.yml
+#
+# Via Portainer → Stacks → Add Stack → upload this file.
+# Via SSH: cd /volume1/docker/autoledger && docker compose up -d --build
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  autoledger:
+    # Build from the Dockerfile in this directory
+    build: .
+
+    # Human-readable container name (visible in Portainer and Container Manager)
+    container_name: autoledger
+
+    # Always restart unless explicitly stopped — survives NAS reboots and
+    # Mac Docker Desktop restarts
+    restart: unless-stopped
+
+    ports:
+      # Host port 5050 avoids conflicts with common Synology and Mac services.
+      # Change the left side only if 5050 is already in use on your host.
+      # The right side (5000) is internal to the container — do not change it.
+      - "5050:5000"
+
+    volumes:
+      # DATA_PATH comes from .env — defaults to ./data for Mac,
+      # change to /volume1/docker/autoledger/data for Synology.
+      - ${DATA_PATH:-./data}:/data
+
+    environment:
+      # DATA_DIR tells the app where the mounted volume is inside the container.
+      # This never needs to change — the volume mount above handles the rest.
+      - DATA_DIR=/data
