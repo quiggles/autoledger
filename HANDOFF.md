@@ -81,7 +81,7 @@ Fuel-specific fields only present on Fuel entries. `fuel_economy` is L/100mi.
 {
   "id": "uuid4", "name": "Insignia", "make": "Vauxhall",
   "model": "Insignia", "year": 2018, "colour": "Silver",
-  "registration": "HV68 TCZ", "notes": "Company car",
+  "registration": "BD14 WRX", "notes": "Company car",
   "created_at": "ISO-8601"
 }
 ```
