@@ -1,0 +1,23 @@
+# Environment / secrets
+.env
+.env.local
+
+# Data directory (user data, SQLite DBs, uploads)
+data/
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Docker
+*.log
