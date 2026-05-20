@@ -2,7 +2,7 @@
 
 A self-hosted car running cost tracker. Track fuel, insurance, servicing and other vehicle expenses with full fuel efficiency analysis (MPG, km/L) and spending reports.
 
-Built with Flask + Python + flat JSON storage. Runs in Docker on a Mac, Synology NAS, or any Linux host.
+Built with Flask + Python + flat JSON storage. Runs in Docker on Mac, Windows, Linux, or a Synology NAS.
 
 ![AutoLedger Dashboard](https://img.shields.io/badge/version-1.8.6-blue) ![Docker](https://img.shields.io/badge/docker-ready-green) ![License](https://img.shields.io/badge/license-MIT-brightgreen)
 
@@ -24,7 +24,8 @@ Built with Flask + Python + flat JSON storage. Runs in Docker on a Mac, Synology
 ## Quick Start
 
 ### Prerequisites
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Mac/Windows) or Docker + Docker Compose (Linux/Synology)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Mac / Windows) or Docker + Docker Compose (Linux / Synology)
+- [Git](https://git-scm.com/downloads)
 
 ### Mac / Linux
 
@@ -33,14 +34,34 @@ Built with Flask + Python + flat JSON storage. Runs in Docker on a Mac, Synology
 git clone https://github.com/quiggles/autoledger.git
 cd autoledger
 
-# 2. Start the container
-docker compose up --build
+# 2. Copy the example env file
+cp .env.example .env
 
-# 3. Open in browser
-open http://localhost:5050
+# 3. Start the container
+docker compose up --build -d
 ```
 
+Then open **http://localhost:5050** in your browser.
+
 Data is stored in `./data/` (created automatically on first run).
+
+### Windows
+
+```powershell
+# 1. Clone the repository
+git clone https://github.com/quiggles/autoledger.git
+cd autoledger
+
+# 2. Copy the example env file
+copy .env.example .env
+
+# 3. Start the container
+docker compose up --build -d
+```
+
+Then open **http://localhost:5050** in your browser.
+
+> **Note:** Run the commands above in PowerShell, Command Prompt, or Git Bash. Docker Desktop for Windows must be running first.
 
 ---
 
@@ -79,10 +100,10 @@ App will be at `http://192.168.0.100:5050`
 
 ## Configuration
 
-Edit the `.env` file to configure the data storage location:
+Copy `.env.example` to `.env` (if you haven't already), then edit it to configure the data storage location:
 
 ```bash
-# Mac / Linux (default — stores data next to docker-compose.yml)
+# Mac / Linux / Windows (default — stores data next to docker-compose.yml)
 DATA_PATH=./data
 
 # Synology NAS
@@ -168,7 +189,7 @@ autoledger/
 ├── requirements.txt        # Python dependencies
 ├── Dockerfile
 ├── docker-compose.yml
-├── .env                    # Data path configuration
+├── .env.example            # Data path configuration template (copy to .env)
 ├── routes/
 │   ├── data.py             # Shared JSON load/save helpers
 │   ├── costs.py            # Cost record CRUD API
@@ -186,10 +207,23 @@ autoledger/
 
 ## Development
 
+**Mac / Linux:**
 ```bash
 # Run without Docker (requires Python 3.11+)
 pip install -r requirements.txt
 DATA_DIR=./data flask --app app run --port 5050 --debug
+```
+
+**Windows (PowerShell):**
+```powershell
+pip install -r requirements.txt
+$env:DATA_DIR="./data"; flask --app app run --port 5050 --debug
+```
+
+**Windows (Command Prompt):**
+```cmd
+pip install -r requirements.txt
+set DATA_DIR=./data && flask --app app run --port 5050 --debug
 ```
 
 ---
