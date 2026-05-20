@@ -234,6 +234,12 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ---
 
+## Attribution
+
+This project was fully coded by AI ([Claude](https://claude.ai) by Anthropic) through prompting and direction by **Gary Quigley**. No manual code was written — every line was generated via conversational prompting.
+
+---
+
 ## License
 
 MIT — do whatever you like with it.
