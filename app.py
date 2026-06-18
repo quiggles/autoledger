@@ -16,12 +16,13 @@ Changelog:
   v1.4.0  Multi-vehicle support; vehicles blueprint; data.py extended
 """
 
-from flask import Flask, send_from_directory, request
+from flask import Flask, request, send_from_directory
+
 from routes.costs import costs_bp
 from routes.importexport import io_bp
+from routes.reports import reports_bp
 from routes.settings import settings_bp
 from routes.vehicles import vehicles_bp
-from routes.reports import reports_bp
 
 # ── App factory ───────────────────────────────────────────────────────────────
 

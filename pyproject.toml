@@ -1,0 +1,29 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# AutoLedger — tooling configuration (pytest + ruff)
+#
+# There is no build/packaging section: AutoLedger is a deployed Flask app, not
+# a distributable package. This file only configures the dev tooling.
+# ──────────────────────────────────────────────────────────────────────────────
+
+[tool.pytest.ini_options]
+# Keep test discovery explicit and fast.
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q --strict-markers"
+
+[tool.ruff]
+# Match the project's runtime (python:3.12-slim in the Dockerfile).
+target-version = "py312"
+line-length = 100
+# Application data and the local virtualenv are never linted.
+extend-exclude = ["data", ".venv"]
+
+[tool.ruff.lint]
+# A pragmatic, non-noisy rule set: pyflakes (F), pycodestyle (E/W),
+# isort (I), flake8-bugbear (B), pyupgrade (UP), comprehensions (C4).
+select = ["E", "W", "F", "I", "B", "UP", "C4"]
+# E501 (line length) is handled by the formatter; B008 is a false-positive
+# magnet for Flask/Click default-arg patterns; E701 is allowed because the
+# codebase deliberately uses short aligned single-line conditionals
+# (e.g. `if "make" in body: v["make"] = ...`) as a readability choice.
+ignore = ["E501", "B008", "E701"]

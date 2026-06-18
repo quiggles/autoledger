@@ -7,6 +7,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Manually-entered fuel fills never produced an MPG figure.** `POST /api/costs`
+  returned early inside the odometer branch, *before* the `is_full_tank` flag was
+  assigned, so hand-entered fills were saved without it. The efficiency engine
+  requires `is_full_tank`, so MPG/km-L only ever appeared for LubeLogger imports
+  (which set the flag themselves). `routes/costs.py` now builds the complete entry
+  before a single load → append → save. Found by the new test suite; guarded by
+  `tests/test_api.py::test_reports_summary_end_to_end`.
+
+### Added
+- **pytest test suite** (`tests/`) covering the high-risk logic: date-format
+  precedence, the MPG/efficiency engine, LubeLogger import, JSON export/import
+  round-trip, and cost/vehicle/settings/reports endpoint validation. Runs on
+  Python 3.12 in Docker via `make test` (see ADR 0005). 51 tests.
+- `pyproject.toml` (pytest + ruff config) and `requirements-dev.txt`.
+- `make lint` / `make fmt` now run ruff in the same Python 3.12 container.
+
+### Changed
+- Linted the codebase for the first time (ruff): import ordering, removed an
+  unused import, dropped an unused loop variable, tidied an open-mode arg. No
+  behavioural changes. `ruff format` deliberately not applied (would flatten the
+  project's aligned-column style; `E701` ignored to keep aligned one-liners).
+
 ### Docs
 - Renamed `HANDOFF.md` → `HANDOVER.md` to match the standard project doc set,
   bumped its version header to 1.8.6, and added embedded Mermaid diagrams

@@ -1,7 +1,12 @@
 # 4. No automated test suite yet (known gap)
 
 Date: 2026-06-18
-Status: Accepted (acknowledged debt)
+Status: Superseded by [ADR 0005](0005-testing-approach.md) (suite added the same day)
+
+> **Update:** the gap recorded below was closed shortly after it was written.
+> A pytest suite now covers exactly the high-risk areas named here, and
+> immediately caught a real bug (manual fuel fills never received the
+> `is_full_tank` flag, so they produced no MPG). See ADR 0005.
 
 ## Context
 

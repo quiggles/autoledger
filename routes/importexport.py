@@ -31,8 +31,10 @@ import csv
 import io
 import json
 from datetime import datetime
+
 from flask import Blueprint, Response, jsonify, request
-from .data import load_data, load_vehicles, make_id, save_data, save_vehicles, parse_date_to_iso
+
+from .data import load_data, load_vehicles, make_id, parse_date_to_iso, save_data, save_vehicles
 
 io_bp = Blueprint("importexport", __name__)
 

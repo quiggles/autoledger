@@ -107,12 +107,49 @@ autoledger/
 │   ├── reports.py            # 9 report aggregation endpoints
 │   └── importexport.py       # JSON export; AutoLedger JSON import; LubeLogger CSV import
 │
+├── tests/                    # pytest suite (run via `make test`)
+│   ├── conftest.py           # Temp-dir DATA_DIR isolation + Flask test client fixtures
+│   ├── test_dates.py         # parse_date_to_iso format precedence
+│   ├── test_efficiency.py    # MPG/km-L maths + consecutive-fill engine
+│   ├── test_importexport.py  # LubeLogger detection/mapping + JSON round-trip
+│   └── test_api.py           # Cost/vehicle/settings/reports endpoint behaviour
+│
+├── pyproject.toml            # pytest + ruff configuration
+├── requirements-dev.txt      # Test/lint deps (pytest, ruff) on top of requirements.txt
+│
 └── static/
     ├── index.html            # SPA shell — no inline JS or CSS
     ├── favicon.svg           # SVG favicon served as /favicon.ico
     ├── css/styles.css        # All styles; light/dark via CSS custom properties
     └── js/app.js             # All client logic — fully commented (1800+ lines)
 ```
+
+---
+
+## Testing
+
+A `pytest` suite lives in `tests/` and runs on **Python 3.12 inside Docker**
+(`make test`) — the host Mac only has Python 3.9, on which the app's 3.10+
+type-union annotations cannot import. See [ADR 0005](docs/adr/0005-testing-approach.md).
+
+```bash
+make test     # pytest in an ephemeral python:3.12-slim container (matches prod)
+make lint     # ruff check
+make fmt      # ruff format (opt-in — not run across existing aligned-style code)
+```
+
+`tests/conftest.py` points `DATA_DIR` at a throwaway temp directory *before* the
+app is imported and wipes the JSON files between tests, so every test gets a
+pristine store against the real storage code path — no mocking, no real `/data`.
+
+Coverage focuses on the historically fragile logic: date-format precedence,
+the MPG/efficiency engine (pairing, sanity bounds, period cutoff), LubeLogger
+import, and endpoint validation. Writing it immediately surfaced a real bug —
+`POST /api/costs` returned early in the odometer branch and skipped the
+`is_full_tank` assignment, so **hand-entered fuel fills never produced an MPG**
+(only LubeLogger imports, which set the flag themselves, did). Fixed by building
+the full entry before a single persist; `test_reports_summary_end_to_end` guards
+against regression.
 
 ---
 

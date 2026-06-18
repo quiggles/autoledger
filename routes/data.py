@@ -23,8 +23,8 @@ Changelog:
 
 import json
 import os
-import uuid
 import tempfile
+import uuid
 from datetime import datetime
 
 # ── Configuration ─────────────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ def _load_json(path: str) -> list:
     """
     if not os.path.exists(path):
         return []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 

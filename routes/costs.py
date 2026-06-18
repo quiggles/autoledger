@@ -23,9 +23,11 @@ Changelog:
            helpers; date normalised to ISO on POST/PUT; atomic writes via data.py
 """
 
-from flask import Blueprint, request, jsonify
 from datetime import datetime
-from .data import load_data, save_data, make_id, parse_date_to_iso
+
+from flask import Blueprint, jsonify, request
+
+from .data import load_data, make_id, parse_date_to_iso, save_data
 from .settings import load_settings
 
 costs_bp = Blueprint("costs", __name__)
@@ -99,6 +101,13 @@ def add_cost():
 
     odometer_warning = None
 
+    # ── Fuel-specific fields ────────────────────────────────────────────────
+    # Build the full entry FIRST, then persist once at the end. An earlier
+    # version returned early inside the odometer branch, which skipped the
+    # is_full_tank assignment below — so hand-entered fills silently lost their
+    # full-tank flag and never produced an MPG figure (only imported rows did).
+    # Order here is deliberate: every optional field is attached to `entry`
+    # before the single load → append → save at the bottom.
     if category == "Fuel":
         litres = body.get("litres")
         if litres is not None:
@@ -107,35 +116,36 @@ def add_cost():
             except (TypeError, ValueError):
                 pass
 
-        odometer = body.get("odometer")
-        if odometer is not None:
-            try:
-                odo_val = round(float(odometer), 1)
-                entry["odometer"] = odo_val
-                # Load once — reused below for append
-                data = load_data()
-                last_odo = _last_odometer_from_records(data, vehicle_id)
-                if last_odo is not None and odo_val < last_odo:
-                    odometer_warning = (
-                        f"Odometer {odo_val:,.0f} is less than the previous "
-                        f"reading of {last_odo:,.0f} — please check it is correct."
-                    )
-                data.append(entry)
-                save_data(data)
-                response = dict(entry)
-                if odometer_warning:
-                    response["odometer_warning"] = odometer_warning
-                return jsonify(response), 201
-            except (TypeError, ValueError):
-                pass
-
         if "is_full_tank" in body:
             entry["is_full_tank"] = bool(body["is_full_tank"])
 
+        odometer = body.get("odometer")
+        if odometer is not None:
+            try:
+                entry["odometer"] = round(float(odometer), 1)
+            except (TypeError, ValueError):
+                pass
+
+    # ── Persist (single load → append → save) ───────────────────────────────
     data = load_data()
+
+    # Odometer continuity check needs the existing records, so it runs here
+    # after the load. Fuel-only, and only when an odometer was supplied.
+    if "odometer" in entry:
+        last_odo = _last_odometer_from_records(data, vehicle_id)
+        if last_odo is not None and entry["odometer"] < last_odo:
+            odometer_warning = (
+                f"Odometer {entry['odometer']:,.0f} is less than the previous "
+                f"reading of {last_odo:,.0f} — please check it is correct."
+            )
+
     data.append(entry)
     save_data(data)
-    return jsonify(entry), 201
+
+    response = dict(entry)
+    if odometer_warning:
+        response["odometer_warning"] = odometer_warning
+    return jsonify(response), 201
 
 
 @costs_bp.route("/costs/<cost_id>", methods=["PUT"])

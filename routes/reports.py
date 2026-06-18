@@ -19,10 +19,12 @@ Changelog:
            parse_date_to_iso shared with filter for consistent date handling
 """
 
-from flask import Blueprint, jsonify, request
-from datetime import datetime, date
-from dateutil.relativedelta import relativedelta
 from collections import defaultdict
+from datetime import date, datetime
+
+from dateutil.relativedelta import relativedelta
+from flask import Blueprint, jsonify, request
+
 from .data import load_data, parse_date_to_iso
 
 reports_bp = Blueprint("reports", __name__)
@@ -345,7 +347,7 @@ def report_cost_per_mile():
     result_months, result_cpm = [], []
     sorted_months = sorted(monthly_spend.keys())
 
-    for i, month in enumerate(sorted_months):
+    for month in sorted_months:
         curr_odo = month_last_odo.get(month)
         if curr_odo is None:
             continue

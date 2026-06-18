@@ -26,9 +26,11 @@ Changelog:
   v1.4.0  Initial — full CRUD; cascade delete option
 """
 
-from flask import Blueprint, request, jsonify
 from datetime import datetime
-from .data import load_data, save_data, make_id, load_vehicles, save_vehicles
+
+from flask import Blueprint, jsonify, request
+
+from .data import load_data, load_vehicles, make_id, save_data, save_vehicles
 
 vehicles_bp = Blueprint("vehicles", __name__)
 

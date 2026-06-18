@@ -19,13 +19,12 @@ Changelog:
   v1.3.0  Initial — currency symbol and category management
 """
 
-import os
 from flask import Blueprint, jsonify, request
 
-settings_bp = Blueprint("settings", __name__)
+# Settings live in the same volume as the cost data; reuse the shared atomic I/O.
+from .data import SETTINGS_FILE, _load_json, _save_json
 
-# Settings file lives in the same volume as the cost data
-from .data import SETTINGS_FILE, _save_json, _load_json
+settings_bp = Blueprint("settings", __name__)
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 
