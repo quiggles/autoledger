@@ -1,11 +1,70 @@
-# AutoLedger — Developer Handoff
+# AutoLedger — Developer Handover
 
 > Canonical reference for any developer or future AI session picking up this
 > project. Read before touching code. Update with every release.
 
-**Current version:** 1.8.5
+**Current version:** 1.8.6
 **Stack:** Flask + Python + flat JSON storage + Chart.js frontend
 **Deployment:** Docker on Mac (dev) or Synology DS923+ NAS (prod)
+
+---
+
+## Architecture
+
+```mermaid
+flowchart TB
+    browser(["Browser SPA<br/>static/js/app.js · Chart.js"])
+
+    subgraph container["AutoLedger container (Gunicorn, single worker)"]
+        app["app.py<br/>Flask app · blueprint registry · no-cache headers"]
+        subgraph routes["routes/ (one blueprint per domain)"]
+            costs["costs.py — cost CRUD + bulk-delete"]
+            vehicles["vehicles.py — vehicle CRUD"]
+            settings["settings.py — currency + categories"]
+            reports["reports.py — 9 aggregation endpoints"]
+            io["importexport.py — JSON + LubeLogger CSV"]
+        end
+        data["data.py<br/>atomic load/save · date parsing"]
+    end
+
+    subgraph vol["/data volume (gitignored — never committed)"]
+        cj[("costs.json")]
+        vj[("vehicles.json")]
+        sj[("settings.json")]
+    end
+
+    browser -->|"/api/* (fetch)"| app
+    app --> routes
+    costs --> data
+    vehicles --> data
+    settings --> data
+    reports --> data
+    io --> data
+    data --> cj & vj & sj
+```
+
+The single Gunicorn worker is deliberate — it serialises writes to the flat
+JSON files and prevents the read-modify-write races that multiple workers would
+cause (see [ADR 0002](docs/adr/0002-single-gunicorn-worker.md)).
+
+### Request flow — adding a fuel fill
+
+```mermaid
+sequenceDiagram
+    participant U as Browser
+    participant A as costs.py
+    participant D as data.py
+    participant F as costs.json
+    U->>A: POST /api/costs {date, litres, odometer, ...}
+    A->>D: load_json("costs.json")
+    D->>F: read + parse
+    A->>A: check odometer vs last reading
+    A->>D: save_json(costs + new record)
+    D->>F: atomic write (temp file + os.replace)
+    A-->>U: 201 {record, odometer_warning?}
+    U->>A: GET /api/reports/efficiency
+    A-->>U: MPG per consecutive full-tank pair
+```
 
 ---
 
@@ -35,7 +94,9 @@ autoledger/
 ├── .env                      # DATA_PATH=./data (Mac) or /volume1/... (Synology)
 ├── .dockerignore             # Excludes data/, .env, zips, docs from build context
 ├── CHANGELOG.md              # Version history
-├── HANDOFF.md                # This file
+├── HANDOVER.md               # This file
+├── Makefile                  # setup / run / test / lint / fmt / clean targets
+├── docs/adr/                 # Architecture Decision Records (numbered)
 │
 ├── routes/
 │   ├── __init__.py           # Makes routes/ a Python package
@@ -65,7 +126,7 @@ autoledger/
   "date":         "YYYY-MM-DD",
   "category":     "Fuel",
   "amount":       42.50,
-  "note":         "BP Brookwood",
+  "note":         "BP Example Forecourt",
   "source":       "manual | lubelogger | import",
   "litres":       48.12,
   "odometer":     54321.0,
@@ -81,7 +142,7 @@ Fuel-specific fields only present on Fuel entries. `fuel_economy` is L/100mi.
 {
   "id": "uuid4", "name": "Insignia", "make": "Vauxhall",
   "model": "Insignia", "year": 2018, "colour": "Silver",
-  "registration": "BD14 WRX", "notes": "Company car",
+  "registration": "AB12 CDE", "notes": "Company car",
   "created_at": "ISO-8601"
 }
 ```
@@ -128,7 +189,7 @@ All report endpoints accept `?vehicle_id=&months=` (months=0 = all time).
 
 ## LubeLogger Import
 
-Confirmed CSV columns from Gary's actual export:
+Confirmed CSV columns from a real LubeLogger export:
 
 | LubeLogger     | AutoLedger field  |
 |----------------|-------------------|
@@ -225,7 +286,7 @@ When releasing a new version, update ALL of:
 2. `static/js/app.js` header comment version
 3. `static/index.html` HTML comment + `sidebar-version` div + `?v=` params on CSS/JS
 4. `CHANGELOG.md` — new section at top
-5. `HANDOFF.md` — version number at top
+5. `HANDOVER.md` — version number at top
 
 ---
 

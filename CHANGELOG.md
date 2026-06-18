@@ -5,7 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [1.8.6] — 2025
+## [Unreleased]
+
+### Docs
+- Renamed `HANDOFF.md` → `HANDOVER.md` to match the standard project doc set,
+  bumped its version header to 1.8.6, and added embedded Mermaid diagrams
+  (component architecture + add-a-fill request flow).
+- Added `docs/adr/` with the project's first Architecture Decision Records:
+  flat-JSON storage (0001), single Gunicorn worker (0002), DOM-as-source-of-truth
+  / scoped element IDs (0003), and the no-test-suite-yet debt (0004).
+- Added a `Makefile` with standard targets (`setup`, `run`, `test`, `lint`,
+  `fmt`, `clean`).
+- Removed a direct reference to the maintainer by name in the handover doc.
+
+### Repository
+- Stopped tracking macOS `.DS_Store` files (they were committed before the
+  `.gitignore` rule existed) and removed them from the tree.
+- Earlier housekeeping now recorded here for completeness: added `.gitignore`,
+  renamed `.env` → `.env.example`, and rewrote the README install steps to be
+  cross-platform (Mac / Linux / Synology) with an AI-attribution credit.
+
+---
+
+## [1.8.6] — 2026-05-19
 
 ### Fixed — Fuel Detail Panel (definitive root cause found)
 
