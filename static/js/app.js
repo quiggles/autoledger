@@ -1,6 +1,16 @@
 /**
- * AutoLedger — app.js  v1.8.5
+ * AutoLedger — app.js  v2.0.0
  * ============================
+ *
+ * v2.0.0 additions:
+ *   AUTHENTICATION — bootAuth() checks /api/auth/status and shows the onboarding
+ *     or login gate before init() runs. A global fetch wrapper surfaces the
+ *     login gate on any 401 (expired session).
+ *   REMINDERS — service/MOT/tax/insurance reminders by date and/or mileage, a
+ *     dashboard banner, and a "check now" manual evaluation.
+ *   NOTIFICATIONS — email (SMTP) + Home Assistant config in Settings. Secrets
+ *     are write-only: blank password/token fields keep the stored value.
+ *
  *
  * Architecture notes for future maintainers:
  * ─────────────────────────────────────────
@@ -104,9 +114,10 @@ function showPage(name) {
   closeVehicleDropdown();
 
   // Page-specific side effects
-  if (name === 'settings') renderSettingsUI();
-  if (name === 'vehicles') renderVehicleGrid();
-  if (name === 'reports')  loadReports();
+  if (name === 'settings')  renderSettingsUI();
+  if (name === 'vehicles')  renderVehicleGrid();
+  if (name === 'reports')   loadReports();
+  if (name === 'reminders') loadReminders();
 
   // Re-render the entries table when navigating to it, so it's always fresh
   // and panel state is clean. This also handles the case where data changed
@@ -290,6 +301,7 @@ function renderAll() {
   _mpgMapCache = null; // invalidate so next render fetches fresh MPG data
   renderRecentTable();
   renderEntriesTable();
+  loadReminderBanner();   // refresh the dashboard due-reminder banner + nav badge
 }
 
 // ── Dashboard title ───────────────────────────────────────────────────────────
@@ -1564,6 +1576,16 @@ async function confirmDeleteVehicle(cascade) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 async function saveSettings() {
+  // Pull the non-currency/category fields (MPG bounds, reminder time) out of
+  // their inputs into the settings object before persisting. These inputs are
+  // not data-bound, so we read them here at save time.
+  const mpgMin = parseFloat(document.getElementById('set-mpg-min').value);
+  const mpgMax = parseFloat(document.getElementById('set-mpg-max').value);
+  if (!Number.isNaN(mpgMin)) settings.mpg_min = mpgMin;
+  if (!Number.isNaN(mpgMax)) settings.mpg_max = mpgMax;
+  const t = document.getElementById('set-reminder-time').value;
+  if (t) settings.reminder_check_time = t;
+
   try {
     const res = await fetch('/api/settings', {
       method:  'POST',
@@ -1591,7 +1613,25 @@ async function saveSettings() {
   }
 }
 
-function renderSettingsUI() { renderCurrencyChips(); renderCategoryList(); }
+function renderSettingsUI() {
+  renderCurrencyChips();
+  renderCategoryList();
+  renderPreferences();
+  loadNotifyConfig();
+}
+
+/**
+ * Populate the MPG-bounds and reminder-time inputs from the current settings.
+ * Falls back to the documented defaults if a key is absent (older data files).
+ */
+function renderPreferences() {
+  const min  = document.getElementById('set-mpg-min');
+  const max  = document.getElementById('set-mpg-max');
+  const time = document.getElementById('set-reminder-time');
+  if (min)  min.value  = settings.mpg_min  ?? 10;
+  if (max)  max.value  = settings.mpg_max  ?? 100;
+  if (time) time.value = settings.reminder_check_time || '08:00';
+}
 
 const COMMON_CURRENCIES = [
   { sym: '£', label: 'GBP' }, { sym: '$', label: 'USD' },
@@ -1810,6 +1850,425 @@ function showToast(msg, cls = '') {
 
 function showToastWarn(msg) { showToast(msg, 'warn'); }
 
+/**
+ * Escape a string for safe insertion into innerHTML. Reminder labels and
+ * messages echo user input, so they are escaped before rendering.
+ */
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AUTHENTICATION (v2.0.0)
+// First-run onboarding, login/logout, and a global 401 interceptor. The app is
+// only initialised (init()) once a session is confirmed by /api/auth/status.
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Decide what to show on load: the onboarding form (no account), the login form
+ * (account exists but no session), or the app itself (authenticated).
+ */
+async function bootAuth() {
+  try {
+    const r = await fetch('/api/auth/status');
+    const s = await r.json();
+    if (s.onboarded && s.authenticated) {
+      document.getElementById('account-user').textContent = s.username || '—';
+      hideAuthGate();
+      init();
+    } else {
+      showAuthGate(s.onboarded ? 'login' : 'onboard');
+    }
+  } catch (e) {
+    // If status itself fails the app is unreachable — show login so the user
+    // can retry once connectivity returns.
+    showAuthGate('login');
+  }
+}
+
+function showAuthGate(mode) {
+  document.getElementById('auth-gate').style.display = 'flex';
+  document.getElementById('onboard-form').style.display = mode === 'onboard' ? 'block' : 'none';
+  document.getElementById('login-form').style.display   = mode === 'login'   ? 'block' : 'none';
+  const focusId = mode === 'onboard' ? 'onboard-username' : 'login-username';
+  setTimeout(() => document.getElementById(focusId)?.focus(), 50);
+}
+
+function hideAuthGate() {
+  document.getElementById('auth-gate').style.display = 'none';
+}
+
+function _authError(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
+/** Create the single admin account on first run, then start the app. */
+async function submitOnboard() {
+  const username = document.getElementById('onboard-username').value.trim();
+  const pw  = document.getElementById('onboard-password').value;
+  const pw2 = document.getElementById('onboard-password2').value;
+  const err = document.getElementById('onboard-error');
+  err.classList.remove('show');
+
+  if (pw.length < 8)  return _authError('onboard-error', 'Password must be at least 8 characters.');
+  if (pw !== pw2)     return _authError('onboard-error', 'Passwords do not match.');
+
+  try {
+    const res = await fetch('/api/auth/onboard', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password: pw }),
+    });
+    if (!res.ok) return _authError('onboard-error', (await res.json()).error || 'Could not create account.');
+    document.getElementById('account-user').textContent = username;
+    hideAuthGate();
+    init();
+  } catch (e) {
+    _authError('onboard-error', 'Network error — please try again.');
+  }
+}
+
+/** Authenticate an existing account and start the app. */
+async function submitLogin() {
+  const username = document.getElementById('login-username').value.trim();
+  const pw = document.getElementById('login-password').value;
+  document.getElementById('login-error').classList.remove('show');
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password: pw }),
+    });
+    if (res.status === 409) return showAuthGate('onboard');   // no account yet
+    if (!res.ok) return _authError('login-error', 'Invalid username or password.');
+    document.getElementById('account-user').textContent = username;
+    hideAuthGate();
+    init();
+  } catch (e) {
+    _authError('login-error', 'Network error — please try again.');
+  }
+}
+
+/** End the session. A full reload is the simplest way to clear all app state. */
+async function logout() {
+  try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (e) { /* ignore */ }
+  location.reload();
+}
+
+// Global 401 interceptor: if the session expires mid-use, any protected call
+// returns 401 — we surface the login gate rather than letting the UI silently
+// fail. Wraps the native fetch once, preserving all arguments and the response.
+(function installAuthInterceptor() {
+  const _fetch = window.fetch;
+  window.fetch = async function (...args) {
+    const res = await _fetch.apply(this, args);
+    const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url) || '';
+    if (res.status === 401 && url.includes('/api/') && !url.includes('/api/auth/')) {
+      showAuthGate('login');
+    }
+    return res;
+  };
+})();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// REMINDERS (v2.0.0)
+// Service / MOT / tax / insurance reminders, by date and/or mileage, with a
+// dashboard banner and a Home Assistant / email notification dispatch.
+// ══════════════════════════════════════════════════════════════════════════════
+
+let _reminders = [];            // cache of the active vehicle's reminders
+let _editingReminderId = null;  // id of the reminder open in the edit form
+
+/** Load reminders for the active vehicle and render the list. */
+async function loadReminders() {
+  const list = document.getElementById('reminder-list');
+  if (!activeVehicleId) {
+    if (list) list.innerHTML = `<div class="reminder-empty">Select a vehicle to manage reminders.</div>`;
+    return;
+  }
+  try {
+    const r = await fetch(`/api/reminders?vehicle_id=${activeVehicleId}`);
+    _reminders = r.ok ? await r.json() : [];
+  } catch (e) { _reminders = []; }
+  renderReminders();
+}
+
+function renderReminders() {
+  const list = document.getElementById('reminder-list');
+  if (!list) return;
+  if (_reminders.length === 0) {
+    list.innerHTML = `<div class="reminder-empty">No reminders yet. Add one below — for example an MOT due next March, or a service due in 5,000 miles.</div>`;
+    return;
+  }
+  // Most urgent first: overdue, then due, then ok.
+  const rank = { overdue: 0, due: 1, ok: 2 };
+  const sorted = [..._reminders].sort((a, b) => rank[a.status] - rank[b.status]);
+  list.innerHTML = sorted.map(r => `
+    <div class="reminder-card ${r.status}">
+      <div class="reminder-card-head">
+        <span class="reminder-card-title">${escapeHtml(r.label || r.type)}</span>
+        <span class="reminder-status ${r.status}">${r.status}</span>
+      </div>
+      <div class="reminder-card-detail">${escapeHtml(r.message)}</div>
+      <div class="reminder-card-meta">${reminderMeta(r)}</div>
+      <div class="reminder-card-actions">
+        ${(r.recur_months || r.recur_miles)
+          ? `<button class="btn btn-ghost btn-sm" onclick="completeReminder('${r.id}')" title="Mark done and schedule the next one">✓ Mark done</button>`
+          : ''}
+        <button class="btn btn-ghost btn-sm" onclick="editReminder('${r.id}')">Edit</button>
+        <button class="btn btn-danger-ghost btn-sm" onclick="deleteReminder('${r.id}')">Delete</button>
+      </div>
+    </div>`).join('');
+}
+
+/** A small human-readable line describing how a reminder recurs / notifies. */
+function reminderMeta(r) {
+  const bits = [];
+  if (r.recur_months) bits.push(`repeats every ${r.recur_months} month${r.recur_months === 1 ? '' : 's'}`);
+  if (r.recur_miles)  bits.push(`every ${Number(r.recur_miles).toLocaleString()} miles`);
+  if (!r.notify)      bits.push('in-app only');
+  return bits.join(' · ') || 'one-off';
+}
+
+/** Populate the dashboard banner + nav badge with due/overdue reminders. */
+async function loadReminderBanner() {
+  const banner = document.getElementById('reminder-banner');
+  const badge  = document.getElementById('nav-reminders-badge');
+  if (!activeVehicleId) { if (banner) banner.style.display = 'none'; if (badge) badge.style.display = 'none'; return; }
+  let due = [];
+  try {
+    const r = await fetch(`/api/reminders/due?vehicle_id=${activeVehicleId}`);
+    if (r.ok) due = await r.json();
+  } catch (e) { /* non-critical */ }
+
+  if (badge) {
+    badge.textContent = due.length;
+    badge.style.display = due.length ? 'inline-flex' : 'none';
+  }
+  if (!banner) return;
+  if (due.length === 0) { banner.style.display = 'none'; return; }
+  banner.style.display = 'flex';
+  banner.innerHTML = due.map(r => `
+    <div class="reminder-banner-item ${r.status}">
+      <span class="rb-icon">${r.status === 'overdue' ? '⚠️' : '🔔'}</span>
+      <span class="rb-msg">${escapeHtml(r.message)}</span>
+      <button class="btn btn-ghost btn-sm" onclick="showPage('reminders')">Manage</button>
+    </div>`).join('');
+}
+
+function onReminderTypeChange() {
+  const custom = document.getElementById('rf-type').value === 'Custom';
+  document.getElementById('rf-label-field').style.display = custom ? 'block' : 'none';
+}
+
+/** Create or update a reminder from the form. */
+async function submitReminderForm() {
+  if (!activeVehicleId) { showToast('Select a vehicle first'); return; }
+  const type = document.getElementById('rf-type').value;
+  const num  = id => { const v = document.getElementById(id).value; return v === '' ? null : Number(v); };
+
+  const payload = {
+    vehicle_id:   activeVehicleId,
+    type,
+    label:        type === 'Custom' ? document.getElementById('rf-label').value.trim() : type,
+    due_date:     document.getElementById('rf-due-date').value || null,
+    due_mileage:  num('rf-due-mileage'),
+    lead_days:    num('rf-lead-days') ?? 30,
+    lead_miles:   num('rf-lead-miles') ?? 500,
+    recur_months: num('rf-recur-months'),
+    recur_miles:  num('rf-recur-miles'),
+    notify:       document.getElementById('rf-notify').checked,
+  };
+
+  const editing = _editingReminderId !== null;
+  const url     = editing ? `/api/reminders/${_editingReminderId}` : '/api/reminders';
+  try {
+    const res = await fetch(url, {
+      method: editing ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) { showToast((await res.json()).error || 'Could not save reminder'); return; }
+    resetReminderForm();
+    await loadReminders();
+    loadReminderBanner();
+    showToast(editing ? 'Reminder updated' : 'Reminder added', 'success-toast');
+  } catch (e) {
+    showToast('Network error saving reminder');
+  }
+}
+
+function editReminder(id) {
+  const r = _reminders.find(x => x.id === id);
+  if (!r) return;
+  _editingReminderId = id;
+  document.getElementById('rf-type').value         = ['MOT','Service','Tax','Insurance'].includes(r.type) ? r.type : 'Custom';
+  onReminderTypeChange();
+  document.getElementById('rf-label').value        = r.label || '';
+  document.getElementById('rf-due-date').value     = r.due_date || '';
+  document.getElementById('rf-due-mileage').value  = r.due_mileage ?? '';
+  document.getElementById('rf-lead-days').value    = r.lead_days ?? 30;
+  document.getElementById('rf-lead-miles').value   = r.lead_miles ?? 500;
+  document.getElementById('rf-recur-months').value = r.recur_months ?? '';
+  document.getElementById('rf-recur-miles').value  = r.recur_miles ?? '';
+  document.getElementById('rf-notify').checked     = r.notify !== false;
+  document.getElementById('reminder-form-title').textContent = 'Edit Reminder';
+  document.getElementById('rf-submit-btn').textContent = 'Save changes';
+  document.getElementById('rf-cancel-btn').style.display = 'inline-flex';
+  document.getElementById('reminder-form-panel').scrollIntoView({ behavior: 'smooth' });
+}
+
+function cancelReminderEdit() { resetReminderForm(); }
+
+function resetReminderForm() {
+  _editingReminderId = null;
+  ['rf-label','rf-due-date','rf-due-mileage','rf-recur-months','rf-recur-miles'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('rf-type').value = 'MOT';
+  document.getElementById('rf-lead-days').value = 30;
+  document.getElementById('rf-lead-miles').value = 500;
+  document.getElementById('rf-notify').checked = true;
+  onReminderTypeChange();
+  document.getElementById('reminder-form-title').textContent = 'Add Reminder';
+  document.getElementById('rf-submit-btn').textContent = 'Add Reminder';
+  document.getElementById('rf-cancel-btn').style.display = 'none';
+}
+
+async function completeReminder(id) {
+  try {
+    const res = await fetch(`/api/reminders/${id}/complete`, { method: 'POST' });
+    if (!res.ok) { showToast('Could not complete reminder'); return; }
+    await loadReminders();
+    loadReminderBanner();
+    showToast('Marked done — next cycle scheduled', 'success-toast');
+  } catch (e) { showToast('Network error'); }
+}
+
+async function deleteReminder(id) {
+  if (!confirm('Delete this reminder?')) return;
+  try {
+    await fetch(`/api/reminders/${id}`, { method: 'DELETE' });
+    await loadReminders();
+    loadReminderBanner();
+    showToast('Reminder deleted');
+  } catch (e) { showToast('Network error'); }
+}
+
+/** Manually evaluate reminders now and send any due notifications. */
+async function checkRemindersNow() {
+  try {
+    const res = await fetch('/api/reminders/evaluate', { method: 'POST' });
+    const s = await res.json();
+    showToast(`Checked ${s.evaluated} reminder(s) — ${s.newly_due} due${s.emailed ? ', email sent' : ''}`, 'success-toast');
+    loadReminderBanner();
+  } catch (e) { showToast('Network error'); }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// NOTIFICATIONS CONFIG (v2.0.0)
+// Email (SMTP) + Home Assistant settings. Secrets are write-only: the server
+// never returns them, so blank password/token fields mean "keep the stored one".
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function loadNotifyConfig() {
+  let cfg;
+  try {
+    const r = await fetch('/api/notify/config');
+    if (!r.ok) return;
+    cfg = await r.json();
+  } catch (e) { return; }
+
+  const e = cfg.email || {}, h = cfg.homeassistant || {};
+  document.getElementById('nf-email-enabled').checked = !!e.enabled;
+  document.getElementById('nf-email-host').value      = e.host || '';
+  document.getElementById('nf-email-port').value      = e.port || 587;
+  document.getElementById('nf-email-username').value  = e.username || '';
+  document.getElementById('nf-email-from').value      = e.from_addr || '';
+  document.getElementById('nf-email-to').value        = e.to_addr || '';
+  document.getElementById('nf-email-password').value  = '';
+  document.getElementById('nf-email-pw-state').textContent = e.password_set ? '(saved — blank keeps it)' : '(not set)';
+
+  document.getElementById('nf-ha-enabled').checked = !!h.enabled;
+  document.getElementById('nf-ha-url').value       = h.base_url || '';
+  document.getElementById('nf-ha-service').value   = h.notify_service || '';
+  document.getElementById('nf-ha-token').value     = '';
+  document.getElementById('nf-ha-token-state').textContent = h.token_set ? '(saved — blank keeps it)' : '(not set)';
+}
+
+/** Build the notify payload from the form; omit blank secrets so they're kept. */
+function _notifyPayload() {
+  const emailPw = document.getElementById('nf-email-password').value;
+  const haToken = document.getElementById('nf-ha-token').value;
+  const email = {
+    enabled:   document.getElementById('nf-email-enabled').checked,
+    host:      document.getElementById('nf-email-host').value.trim(),
+    port:      Number(document.getElementById('nf-email-port').value) || 587,
+    username:  document.getElementById('nf-email-username').value.trim(),
+    from_addr: document.getElementById('nf-email-from').value.trim(),
+    to_addr:   document.getElementById('nf-email-to').value.trim(),
+  };
+  if (emailPw) email.password = emailPw;
+  const homeassistant = {
+    enabled:        document.getElementById('nf-ha-enabled').checked,
+    base_url:       document.getElementById('nf-ha-url').value.trim(),
+    notify_service: document.getElementById('nf-ha-service').value.trim(),
+  };
+  if (haToken) homeassistant.token = haToken;
+  return { email, homeassistant };
+}
+
+async function saveNotify() {
+  try {
+    const res = await fetch('/api/notify/config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(_notifyPayload()),
+    });
+    if (!res.ok) { showToast('Could not save notification settings'); return; }
+    await loadNotifyConfig();   // re-mask secrets, refresh "saved" hints
+    showToast('Notification settings saved', 'success-toast');
+  } catch (e) { showToast('Network error'); }
+}
+
+function _notifyResult(id, ok, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'notify-result ' + (ok ? 'ok' : 'err');
+}
+
+async function testEmail() {
+  const btn = document.getElementById('nf-email-test-btn');
+  btn.disabled = true;
+  _notifyResult('nf-email-result', true, 'Sending…');
+  try {
+    const res = await fetch('/api/notify/test-email', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(_notifyPayload()),
+    });
+    const s = await res.json();
+    _notifyResult('nf-email-result', s.ok, s.message);
+  } catch (e) {
+    _notifyResult('nf-email-result', false, 'Network error');
+  } finally { btn.disabled = false; }
+}
+
+async function testHA() {
+  const btn = document.getElementById('nf-ha-test-btn');
+  btn.disabled = true;
+  _notifyResult('nf-ha-result', true, 'Sending…');
+  try {
+    const res = await fetch('/api/notify/test-ha', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(_notifyPayload()),
+    });
+    const s = await res.json();
+    _notifyResult('nf-ha-result', s.ok, s.message);
+  } catch (e) {
+    _notifyResult('nf-ha-result', false, 'Network error');
+  } finally { btn.disabled = false; }
+}
+
 // ── Initialisation ────────────────────────────────────────────────────────────
 
 // Close modals when clicking the overlay background
@@ -1833,4 +2292,4 @@ document.addEventListener('click', e => {
 document.getElementById('date').value = new Date().toISOString().split('T')[0];
 
 initTheme();
-init();
+bootAuth();   // gate the app behind onboarding/login; init() runs once signed in

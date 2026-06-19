@@ -5,9 +5,63 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [Unreleased]
+## [2.0.0] - 2026-06-19
+
+Major release: the app is now authenticated, observable, more robust, and can
+remind you about MOT / service / tax / insurance. See ADRs 0006–0008.
+
+### Added
+- **Authentication + first-run onboarding** (`routes/auth.py`). Single admin
+  account, Argon2id password hashing (`argon2-cffi`), signed-cookie sessions
+  (persistent secret in `data/session.key`). A `before_request` guard protects
+  every `/api/*` route except the public allow-list. On a fresh install the SPA
+  forces an onboarding screen to create the admin before anything else works.
+  Login / logout in the UI. **No secret is exposed via any GET.** (ADR 0006)
+- **At-rest encryption for secrets only** (`routes/crypto.py`). The SMTP password
+  and Home Assistant token are Fernet-encrypted (`enc:v1:` prefix) with an
+  app-managed key in `data/secret.key`. Cost/vehicle/settings data stays
+  plaintext, preserving the ADR 0001 inspect/diff/backup property. (ADR 0006)
+- **Reminders** (`routes/reminders.py`) for service / MOT / tax / insurance /
+  custom, triggered by **date and/or mileage**, with lead times, recurrence
+  ("every 6 months" / "every 10,000 miles"), a dashboard banner, and a sidebar
+  due-count badge. All schedules are human-readable in the UI. (ADR 0007)
+- **Notifications** (`routes/notify.py`): Home Assistant (one
+  `sensor.autoledger_<vehicle>_<type>` per reminder + optional notify service)
+  and SMTP/STARTTLS email with a **Test email** button and inline Resend / Gmail
+  setup help. Both channels independently toggleable; secrets encrypted at rest
+  and seedable from env on first run. (ADR 0007)
+- **In-process daily scheduler** (`routes/scheduler.py`, APScheduler) that
+  evaluates reminders and pushes notifications at a UI-configurable time, so
+  date-based reminders fire even when the app is closed. (ADR 0007)
+- **Health endpoint** `GET /api/health` (unauthenticated) returning status,
+  version and record counts, plus a Docker `HEALTHCHECK` for Container Radar /
+  Homepage siteMonitor / Portainer. (ADR 0008)
+- **Structured logging** (`routes/logging_config.py`): compact `key=value`
+  records to stdout at the I/O edges (save failures, import errors, request
+  errors, auth/notify/scheduler events) — the codebase previously had none. (ADR 0008)
+- **Configurable MPG sanity bounds** (`mpg_min` / `mpg_max` in settings, exposed
+  in the UI) so very efficient or very thirsty vehicles keep legitimate readings
+  instead of being clipped by the old hardcoded 10–100.
+- Test suite expanded to **83 tests** — added auth, health, crypto/notify,
+  reminders, and robustness coverage.
+- `version.py` as the single source of truth for the app version (also used by
+  `/api/health` and the JSON export envelope).
+
+### Changed
+- All report aggregations now coerce `amount` / `litres` / `odometer` defensively
+  (skip + log malformed records) instead of letting one bad row 500 the whole
+  report (`routes/reports.py`).
+- `POST /api/import/json` skips and collects bad rows (returning an `errors`
+  list) instead of aborting the entire import on the first non-numeric amount,
+  matching the LubeLogger path. It now also preserves fuel-specific fields and
+  normalises dates on import.
+- The JSON export envelope reports the real app version rather than a hardcoded
+  string.
 
 ### Fixed
+- **`_expandedRows.clear()` calls in `index.html` referenced a variable deleted
+  in v1.8.5**, throwing a `ReferenceError` on entries-page search/sort. Removed
+  (the DOM is the source of truth per ADR 0003).
 - **Manually-entered fuel fills never produced an MPG figure.** `POST /api/costs`
   returned early inside the odometer branch, *before* the `is_full_tank` flag was
   assigned, so hand-entered fills were saved without it. The efficiency engine

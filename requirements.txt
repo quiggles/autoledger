@@ -1,6 +1,11 @@
 # AutoLedger Python dependencies
 # Pin minor versions for reproducible builds
 
-flask==3.0.3       # Web framework
-gunicorn==22.0.0   # Production WSGI server (used in Docker)
-python-dateutil==2.9.0
+flask==3.0.3            # Web framework
+gunicorn==22.0.0        # Production WSGI server (used in Docker)
+python-dateutil==2.9.0  # Robust date parsing for imports / reports
+
+# ── Added in v2.0.0 ───────────────────────────────────────────────────────────
+argon2-cffi==23.1.0     # Argon2id password hashing for the admin account
+cryptography==42.0.8    # Fernet symmetric encryption for at-rest secrets
+APScheduler==3.10.4     # In-process daily job that evaluates reminders
