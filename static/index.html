@@ -1,8 +1,12 @@
 <!DOCTYPE html>
 <!--
-  AutoLedger — index.html  v1.7.1
+  AutoLedger — index.html  v2.0.0
   ================================
   Changelog:
+    v2.0.0  Authentication gate (first-run onboarding + login/logout);
+            reminders (service/MOT/tax/insurance) with dashboard banner;
+            settings expanded with MPG bounds, reminder schedule, and
+            notification config (SMTP email + Home Assistant) with test buttons
     v1.7.1  Odometer on dashboard/entry form; sort controls on entries;
             Enter key submits add form; unsaved settings warning;
             vehicle notes field; version in sidebar footer;
@@ -17,10 +21,51 @@
   <link rel="icon" href="/favicon.ico" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/styles.css?v=1.8.6">
+  <link rel="stylesheet" href="/static/css/styles.css?v=2.0.0">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
+
+<!-- ════ AUTH GATE ═══════════════════════════════════════════════════════════
+     Full-screen overlay shown before the app loads. bootAuth() (app.js) checks
+     /api/auth/status and reveals either the onboarding form (first run, no
+     account) or the login form. Hidden once a session is established. -->
+<div class="auth-gate" id="auth-gate" style="display:none">
+  <div class="auth-card">
+    <div class="auth-brand">Auto<em>Ledger</em></div>
+
+    <!-- First-run onboarding: create the single admin account -->
+    <form class="auth-form" id="onboard-form" style="display:none"
+          onsubmit="event.preventDefault(); submitOnboard()">
+      <div class="auth-title">Create your admin account</div>
+      <div class="auth-sub">This is the first run. Set up the account that will
+        protect your data — there is no second account and no password recovery,
+        so store it safely.</div>
+      <div class="field"><label>Username</label>
+        <input type="text" id="onboard-username" autocomplete="username" required></div>
+      <div class="field"><label>Password <span class="auth-hint">(min 8 characters)</span></label>
+        <input type="password" id="onboard-password" autocomplete="new-password" minlength="8" required></div>
+      <div class="field"><label>Confirm password</label>
+        <input type="password" id="onboard-password2" autocomplete="new-password" required></div>
+      <div class="auth-error" id="onboard-error"></div>
+      <button class="btn btn-primary auth-submit" type="submit">Create account & sign in</button>
+    </form>
+
+    <!-- Returning user: login -->
+    <form class="auth-form" id="login-form" style="display:none"
+          onsubmit="event.preventDefault(); submitLogin()">
+      <div class="auth-title">Sign in</div>
+      <div class="auth-sub">Enter your AutoLedger credentials.</div>
+      <div class="field"><label>Username</label>
+        <input type="text" id="login-username" autocomplete="username" required></div>
+      <div class="field"><label>Password</label>
+        <input type="password" id="login-password" autocomplete="current-password" required></div>
+      <div class="auth-error" id="login-error"></div>
+      <button class="btn btn-primary auth-submit" type="submit">Sign in</button>
+    </form>
+  </div>
+</div>
+
 <div class="app-shell">
 
   <!-- ════ SIDEBAR ════════════════════════════════════════════════════════════ -->
@@ -53,6 +98,10 @@
       <button class="nav-item" onclick="showPage('reports')" id="nav-reports">
         <span class="nav-icon">📈</span><span>Reports</span>
       </button>
+      <button class="nav-item" onclick="showPage('reminders')" id="nav-reminders">
+        <span class="nav-icon">🔔</span><span>Reminders</span>
+        <span class="nav-badge" id="nav-reminders-badge" style="display:none"></span>
+      </button>
       <button class="nav-item" onclick="showPage('import')" id="nav-import">
         <span class="nav-icon">↕</span><span>Import / Export</span>
       </button>
@@ -69,7 +118,11 @@
         <span id="theme-icon">☾</span>
         <span id="theme-label">Dark mode</span>
       </button>
-      <div class="sidebar-version">v1.8.6</div>
+      <div class="account-row">
+        <span class="account-user" id="account-user" title="Signed in">—</span>
+        <button class="btn btn-ghost btn-sm" id="logout-btn" onclick="logout()">Sign out</button>
+      </div>
+      <div class="sidebar-version">v2.0.0</div>
     </div>
   </aside>
 
@@ -97,6 +150,9 @@
         </div>
       </div>
       <div class="page-body">
+        <!-- Due/overdue reminders banner — populated by loadReminderBanner() -->
+        <div class="reminder-banner" id="reminder-banner" style="display:none"></div>
+
         <div class="summary-grid" id="summary-grid"></div>
 
         <!-- Year-vs-year comparison — rendered dynamically, hidden when no data -->
@@ -179,8 +235,8 @@
           <div class="panel-header">
             <div class="filter-pill-group" id="filter-pills"></div>
             <div class="table-controls">
-              <input class="search-input" id="search-input" placeholder="🔍 Search notes…" oninput="_expandedRows.clear(); renderEntriesTable()">
-              <select class="filter-select" id="sort-select" onchange="_expandedRows.clear(); renderEntriesTable()" title="Sort by">
+              <input class="search-input" id="search-input" placeholder="🔍 Search notes…" oninput="renderEntriesTable()">
+              <select class="filter-select" id="sort-select" onchange="renderEntriesTable()" title="Sort by">
                 <option value="date-desc">Date ↓</option>
                 <option value="date-asc">Date ↑</option>
                 <option value="amount-desc">Amount ↓</option>
@@ -271,6 +327,71 @@
       </div>
     </div>
 
+    <!-- ── Reminders ──────────────────────────────────────────────────────── -->
+    <div class="page" id="page-reminders">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Reminders</div>
+          <div class="page-subtitle">Service, MOT, tax & insurance — by date or mileage</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="checkRemindersNow()" id="reminders-check-btn"
+                title="Evaluate now and send any due notifications">↻ Check now</button>
+      </div>
+      <div class="page-body">
+        <!-- List of reminders for the active vehicle -->
+        <div class="reminder-list" id="reminder-list"></div>
+
+        <!-- Add / edit reminder form -->
+        <div class="panel" id="reminder-form-panel">
+          <div class="panel-header"><div class="panel-title" id="reminder-form-title">Add Reminder</div></div>
+          <div class="reminder-form-grid">
+            <div class="field">
+              <label>Type</label>
+              <select id="rf-type" onchange="onReminderTypeChange()">
+                <option>MOT</option><option>Service</option><option>Tax</option>
+                <option>Insurance</option><option value="Custom">Custom…</option>
+              </select>
+            </div>
+            <div class="field" id="rf-label-field" style="display:none">
+              <label>Custom label</label>
+              <input type="text" id="rf-label" placeholder="e.g. Cambelt change" maxlength="40">
+            </div>
+            <div class="field">
+              <label>Due date <span class="auth-hint">(optional)</span></label>
+              <input type="date" id="rf-due-date">
+            </div>
+            <div class="field">
+              <label>Due mileage <span class="auth-hint">(optional)</span></label>
+              <input type="number" id="rf-due-mileage" placeholder="e.g. 60000" step="1" min="0">
+            </div>
+            <div class="field">
+              <label>Warn me <span class="auth-hint">before the date</span></label>
+              <div class="inline-input"><input type="number" id="rf-lead-days" value="30" step="1" min="0" style="max-width:5rem"><span class="inline-suffix">days before</span></div>
+            </div>
+            <div class="field">
+              <label>Warn me <span class="auth-hint">before the mileage</span></label>
+              <div class="inline-input"><input type="number" id="rf-lead-miles" value="500" step="1" min="0" style="max-width:6rem"><span class="inline-suffix">miles before</span></div>
+            </div>
+            <div class="field">
+              <label>Repeat every <span class="auth-hint">(optional)</span></label>
+              <div class="inline-input"><input type="number" id="rf-recur-months" placeholder="—" step="1" min="0" style="max-width:5rem"><span class="inline-suffix">months</span></div>
+            </div>
+            <div class="field">
+              <label>…or every <span class="auth-hint">(optional)</span></label>
+              <div class="inline-input"><input type="number" id="rf-recur-miles" placeholder="—" step="1" min="0" style="max-width:6rem"><span class="inline-suffix">miles</span></div>
+            </div>
+            <div class="field" style="display:flex;align-items:flex-end">
+              <label class="checkbox-row"><input type="checkbox" id="rf-notify" checked> Send notifications when due</label>
+            </div>
+          </div>
+          <div style="display:flex;gap:0.5rem;margin-top:1rem;align-items:center">
+            <button class="btn btn-primary" onclick="submitReminderForm()" id="rf-submit-btn">Add Reminder</button>
+            <button class="btn btn-ghost" onclick="cancelReminderEdit()" id="rf-cancel-btn" style="display:none">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Import / Export ────────────────────────────────────────────────── -->
     <div class="page" id="page-import">
       <div class="page-header">
@@ -352,7 +473,7 @@
     <div class="page" id="page-settings">
       <div class="page-header">
         <div class="page-title">Settings</div>
-        <div class="page-subtitle">Customise currency and cost categories</div>
+        <div class="page-subtitle">Currency, categories, efficiency bounds, reminders & notifications</div>
       </div>
       <div class="page-body">
         <div class="settings-grid">
@@ -377,10 +498,103 @@
               <button class="btn btn-primary btn-sm" onclick="addCategory()">+ Add</button>
             </div>
           </div>
+
+          <!-- Efficiency (MPG) sanity bounds -->
+          <div class="panel">
+            <div class="panel-header"><div class="panel-title">Efficiency Bounds</div></div>
+            <div class="settings-help">MPG readings outside this range are treated as
+              a bad odometer entry or a missed fill and excluded from efficiency stats.
+              Widen them for very economical or very thirsty vehicles.</div>
+            <div class="bounds-row">
+              <div class="field"><label>Ignore below</label>
+                <div class="inline-input"><input type="number" id="set-mpg-min" step="1" min="1" style="max-width:5.5rem"><span class="inline-suffix">MPG</span></div></div>
+              <div class="field"><label>Ignore above</label>
+                <div class="inline-input"><input type="number" id="set-mpg-max" step="1" min="1" style="max-width:5.5rem"><span class="inline-suffix">MPG</span></div></div>
+            </div>
+          </div>
+
+          <!-- Reminder schedule -->
+          <div class="panel">
+            <div class="panel-header"><div class="panel-title">Reminder Schedule</div></div>
+            <div class="settings-help">Each day at this time AutoLedger checks your
+              reminders and sends any that are due to the channels enabled below.</div>
+            <div class="field" style="max-width:14rem"><label>Daily check time</label>
+              <input type="time" id="set-reminder-time"></div>
+          </div>
         </div>
+
         <div class="settings-save-bar">
           <button class="btn btn-primary" onclick="saveSettings()">Save settings</button>
           <span class="settings-saved-msg" id="settings-saved-msg">✓ Settings saved</span>
+        </div>
+
+        <!-- ── Notifications ─────────────────────────────────────────────── -->
+        <div class="settings-section-heading">Notifications</div>
+        <div class="settings-grid">
+
+          <!-- Email (SMTP) -->
+          <div class="panel">
+            <div class="panel-header"><div class="panel-title">Email (SMTP)</div></div>
+            <label class="checkbox-row" style="margin-bottom:0.75rem">
+              <input type="checkbox" id="nf-email-enabled"> Send reminders by email</label>
+            <div class="settings-grid-2">
+              <div class="field"><label>SMTP host</label><input type="text" id="nf-email-host" placeholder="smtp.resend.com"></div>
+              <div class="field"><label>Port</label><input type="number" id="nf-email-port" placeholder="587" step="1"></div>
+              <div class="field"><label>Username</label><input type="text" id="nf-email-username" placeholder="resend"></div>
+              <div class="field"><label>Password / API key <span class="auth-hint" id="nf-email-pw-state"></span></label>
+                <input type="password" id="nf-email-password" placeholder="•••• (leave blank to keep)" autocomplete="off"></div>
+              <div class="field"><label>From address</label><input type="text" id="nf-email-from" placeholder="autoledger@yourdomain"></div>
+              <div class="field"><label>Send to</label><input type="text" id="nf-email-to" placeholder="you@example.com"></div>
+            </div>
+            <details class="settings-details">
+              <summary>Setup help — Resend & Gmail</summary>
+              <div class="settings-details-body">
+                <p><strong>Resend:</strong> host <code>smtp.resend.com</code>, port <code>587</code>,
+                   username <code>resend</code>, password = your Resend API key.</p>
+                <p><strong>Gmail:</strong> host <code>smtp.gmail.com</code>, port <code>587</code>,
+                   username = your full Gmail address, password = a
+                   <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">Google App Password</a>
+                   (not your normal password; requires 2-Step Verification).</p>
+              </div>
+            </details>
+            <div class="notify-actions">
+              <button class="btn btn-primary btn-sm" onclick="saveNotify()">Save email settings</button>
+              <button class="btn btn-ghost btn-sm" onclick="testEmail()" id="nf-email-test-btn">Send test email</button>
+              <span class="notify-result" id="nf-email-result"></span>
+            </div>
+          </div>
+
+          <!-- Home Assistant -->
+          <div class="panel">
+            <div class="panel-header"><div class="panel-title">Home Assistant</div></div>
+            <label class="checkbox-row" style="margin-bottom:0.75rem">
+              <input type="checkbox" id="nf-ha-enabled"> Push reminders to Home Assistant</label>
+            <div class="settings-grid-2">
+              <div class="field" style="grid-column:1/-1"><label>Base URL</label>
+                <input type="text" id="nf-ha-url" placeholder="http://192.168.0.200:8123"></div>
+              <div class="field" style="grid-column:1/-1"><label>Long-lived access token <span class="auth-hint" id="nf-ha-token-state"></span></label>
+                <input type="password" id="nf-ha-token" placeholder="•••• (leave blank to keep)" autocomplete="off"></div>
+              <div class="field" style="grid-column:1/-1"><label>Notify service <span class="auth-hint">(optional)</span></label>
+                <input type="text" id="nf-ha-service" placeholder="notify.mobile_app_phone"></div>
+            </div>
+            <details class="settings-details">
+              <summary>Setup help</summary>
+              <div class="settings-details-body">
+                <p>Create a token in Home Assistant under
+                   <strong>Profile → Security → Long-lived access tokens</strong>.
+                   AutoLedger pushes a sensor per reminder
+                   (<code>sensor.autoledger_&lt;vehicle&gt;_&lt;type&gt;</code>) you can use on
+                   dashboards and in automations. Set a <em>notify service</em> to also
+                   receive a push message when reminders fall due.</p>
+              </div>
+            </details>
+            <div class="notify-actions">
+              <button class="btn btn-primary btn-sm" onclick="saveNotify()">Save Home Assistant settings</button>
+              <button class="btn btn-ghost btn-sm" onclick="testHA()" id="nf-ha-test-btn">Send test</button>
+              <span class="notify-result" id="nf-ha-result"></span>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
@@ -440,6 +654,6 @@
 </div>
 
 <div class="toast" id="toast"></div>
-<script src="/static/js/app.js?v=1.8.6"></script>
+<script src="/static/js/app.js?v=2.0.0"></script>
 </body>
 </html>

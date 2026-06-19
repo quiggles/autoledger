@@ -1,10 +1,12 @@
 /*
- * AutoLedger — styles.css  v1.7.0
+ * AutoLedger — styles.css  v2.0.0
  * =================================
  * Light mode default. Dark mode via html.dark class.
  * All colours via CSS custom properties — never hardcoded in components.
  *
  * Changelog:
+ *   v2.0.0  Auth gate (onboarding/login); reminders banner, cards & form;
+ *           notification settings (email + Home Assistant) with help boxes
  *   v1.0.0  Dark-only monolith
  *   v1.2.0  Light/dark split
  *   v1.3.0  Full redesign — Syne + Inter; indigo accent; sidebar nav
@@ -937,3 +939,109 @@ input[type="file"] { display:none; }
 .annual-table tbody tr:hover { background: var(--surface2); }
 .annual-table .total-col { font-family: 'Syne', sans-serif; font-weight: 700; color: var(--accent); }
 .annual-table .mpg-col   { color: var(--success); font-weight: 600; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * v2.0.0 — Auth gate, reminders, notifications settings
+ * All colours via existing CSS custom properties (light/dark inherited).
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Auth gate (onboarding + login overlay) ─────────────────────────────────── */
+.auth-gate {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg); padding: 1.5rem;
+}
+.auth-card {
+  width: 100%; max-width: 400px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  padding: 2rem;
+}
+.auth-brand {
+  font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1.6rem;
+  color: var(--text); text-align: center; margin-bottom: 1.5rem;
+}
+.auth-brand em { color: var(--accent); font-style: normal; }
+.auth-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 1.15rem; color: var(--text); margin-bottom: 0.4rem; }
+.auth-sub { font-size: 0.8rem; color: var(--muted); line-height: 1.5; margin-bottom: 1.25rem; }
+.auth-hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); }
+.auth-form .field { margin-bottom: 0.85rem; }
+.auth-submit { width: 100%; justify-content: center; margin-top: 0.5rem; }
+.auth-error {
+  font-size: 0.78rem; color: var(--danger); background: var(--danger-bg);
+  border-radius: var(--radius-sm); padding: 0.5rem 0.7rem; margin-bottom: 0.5rem;
+  display: none;
+}
+.auth-error.show { display: block; }
+
+/* ── Sidebar: account row + nav badge ───────────────────────────────────────── */
+.account-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.5rem; }
+.account-user { font-size: 0.74rem; color: var(--muted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-badge {
+  margin-left: auto; min-width: 1.1rem; height: 1.1rem; padding: 0 0.3rem;
+  border-radius: 999px; background: var(--danger); color: #fff;
+  font-size: 0.65rem; font-weight: 700; display: inline-flex;
+  align-items: center; justify-content: center;
+}
+
+/* ── Reminders: dashboard banner ────────────────────────────────────────────── */
+.reminder-banner { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.25rem; }
+.reminder-banner-item {
+  display: flex; align-items: center; gap: 0.6rem;
+  border-radius: var(--radius-sm); padding: 0.6rem 0.85rem; font-size: 0.85rem;
+  border: 1px solid var(--border);
+}
+.reminder-banner-item.overdue { background: var(--danger-bg);  border-color: var(--danger); color: var(--text); }
+.reminder-banner-item.due     { background: var(--warning-bg); border-color: var(--warning); color: var(--text); }
+.reminder-banner-item .rb-icon { font-size: 1rem; }
+.reminder-banner-item .rb-msg  { flex: 1; }
+
+/* ── Reminders: list + cards ────────────────────────────────────────────────── */
+.reminder-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.85rem; margin-bottom: 1.25rem; }
+.reminder-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 1rem;
+  display: flex; flex-direction: column; gap: 0.5rem;
+}
+.reminder-card.overdue { border-left: 3px solid var(--danger); }
+.reminder-card.due     { border-left: 3px solid var(--warning); }
+.reminder-card.ok      { border-left: 3px solid var(--success); }
+.reminder-card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.reminder-card-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.95rem; color: var(--text); }
+.reminder-status {
+  font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 0.15rem 0.5rem; border-radius: 999px;
+}
+.reminder-status.overdue { background: var(--danger-bg);  color: var(--danger); }
+.reminder-status.due     { background: var(--warning-bg); color: var(--warning); }
+.reminder-status.ok      { background: var(--success-bg); color: var(--success); }
+.reminder-card-detail { font-size: 0.8rem; color: var(--text2); line-height: 1.5; }
+.reminder-card-meta { font-size: 0.72rem; color: var(--muted); }
+.reminder-card-actions { display: flex; gap: 0.4rem; margin-top: 0.35rem; flex-wrap: wrap; }
+.reminder-empty { color: var(--muted); font-size: 0.85rem; padding: 1rem 0; }
+
+/* ── Reminders: form ────────────────────────────────────────────────────────── */
+.reminder-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.85rem; }
+.inline-input { display: flex; align-items: center; gap: 0.4rem; }
+.inline-suffix { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+.checkbox-row { display: flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; color: var(--text2); cursor: pointer; }
+.checkbox-row input { width: auto; }
+
+/* ── Settings: extra blocks ─────────────────────────────────────────────────── */
+.settings-help { font-size: 0.78rem; color: var(--muted); line-height: 1.5; margin-bottom: 0.85rem; }
+.settings-section-heading {
+  font-family: 'Syne', sans-serif; font-weight: 700; font-size: 1.05rem; color: var(--text);
+  margin: 1.75rem 0 0.85rem;
+}
+.settings-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.bounds-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+.settings-details { margin-top: 0.85rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
+.settings-details summary { cursor: pointer; font-size: 0.76rem; font-weight: 600; color: var(--accent); }
+.settings-details-body { font-size: 0.78rem; color: var(--text2); line-height: 1.55; margin-top: 0.6rem; }
+.settings-details-body p { margin-bottom: 0.5rem; }
+.settings-details-body code { background: var(--surface2); padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.74rem; }
+.settings-details-body a { color: var(--accent); }
+.notify-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
+.notify-result { font-size: 0.76rem; color: var(--muted); }
+.notify-result.ok   { color: var(--success); }
+.notify-result.err  { color: var(--danger); }

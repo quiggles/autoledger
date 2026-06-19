@@ -30,11 +30,15 @@ Changelog:
 import csv
 import io
 import json
+import logging
 from datetime import datetime
 
 from flask import Blueprint, Response, jsonify, request
 
+from version import __version__
+
 from .data import load_data, load_vehicles, make_id, parse_date_to_iso, save_data, save_vehicles
+from .logging_config import log_event
 
 io_bp = Blueprint("importexport", __name__)
 
@@ -192,7 +196,7 @@ def export_json():
     vehicles = load_vehicles()
     payload  = {
         "app":          "AutoLedger",
-        "version":      "1.4.0",
+        "version":      __version__,
         "exported_at":  datetime.now().isoformat(),
         "vehicle_count": len(vehicles),
         "record_count": len(costs),
@@ -255,25 +259,46 @@ def import_json():
         save_vehicles(existing_vehicles)
 
     # ── Merge cost records ────────────────────────────────────────────────────
+    # Each row is converted defensively. Previously a single record with a
+    # non-numeric `amount` raised inside `float(...)` and aborted the WHOLE
+    # import — losing every subsequent row. We now mirror the LubeLogger path:
+    # skip the bad row, collect a human-readable error, and import the rest.
     data        = load_data()
     existing_ids = {c["id"] for c in data}
     imported    = 0
     skipped     = 0
+    errors      = []
 
-    for r in records:
+    for i, r in enumerate(records):
         rec_id = r.get("id")
         if rec_id and rec_id in existing_ids:
             skipped += 1
             continue
+        try:
+            amount = float(r.get("amount", 0))
+        except (TypeError, ValueError):
+            errors.append(f"Record {i + 1}: invalid amount {r.get('amount')!r} — skipped")
+            log_event(
+                "import_row_skipped",
+                level=logging.WARNING,
+                index=i + 1,
+                reason="invalid_amount",
+                value=r.get("amount"),
+            )
+            continue
         entry = {
             "id":         rec_id or make_id(),
             "vehicle_id": r.get("vehicle_id", ""),
-            "date":       r.get("date", ""),
+            "date":       parse_date_to_iso(r.get("date", "")),
             "category":   r.get("category", "Fuel"),
-            "amount":     float(r.get("amount", 0)),
+            "amount":     round(amount, 2),
             "note":       r.get("note", ""),
             "source":     r.get("source", "import"),
         }
+        # Preserve fuel-specific fields so a re-import keeps MPG-relevant data.
+        for fld in ("litres", "odometer", "is_full_tank", "unit_cost", "fuel_economy"):
+            if fld in r:
+                entry[fld] = r[fld]
         data.append(entry)
         existing_ids.add(entry["id"])
         imported += 1
@@ -283,6 +308,7 @@ def import_json():
         "imported":          imported,
         "skipped":           skipped,
         "vehicles_imported": vehicles_imported,
+        "errors":            errors,
     })
 
 

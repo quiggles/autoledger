@@ -22,10 +22,13 @@ Changelog:
 """
 
 import json
+import logging
 import os
 import tempfile
 import uuid
 from datetime import datetime
+
+from .logging_config import log_event
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -98,7 +101,17 @@ def _save_json(path: str, data) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         os.replace(tmp_path, path)  # atomic on POSIX
-    except Exception:
+    except Exception as e:
+        # Fail loud (ADR / project principle): record the failure with enough
+        # context to debug before re-raising. The caller still sees the
+        # exception — we only make sure it leaves a trace in the logs, which the
+        # app previously did not do at all.
+        log_event(
+            "save_failed",
+            level=logging.ERROR,
+            file=os.path.basename(path),
+            error=str(e),
+        )
         # Clean up the temp file if anything went wrong
         try:
             os.unlink(tmp_path)

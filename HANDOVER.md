@@ -3,8 +3,9 @@
 > Canonical reference for any developer or future AI session picking up this
 > project. Read before touching code. Update with every release.
 
-**Current version:** 1.8.6
-**Stack:** Flask + Python + flat JSON storage + Chart.js frontend
+**Current version:** 2.0.0
+**Stack:** Flask + Python + flat JSON storage + Chart.js frontend; Argon2id auth,
+Fernet at-rest secret encryption, APScheduler in-process reminder scheduler
 **Deployment:** Docker on Mac (dev) or Synology DS923+ NAS (prod)
 
 ---
@@ -16,14 +17,22 @@ flowchart TB
     browser(["Browser SPA<br/>static/js/app.js · Chart.js"])
 
     subgraph container["AutoLedger container (Gunicorn, single worker)"]
-        app["app.py<br/>Flask app · blueprint registry · no-cache headers"]
+        app["app.py<br/>Flask app · blueprint registry · auth guard · no-cache"]
+        guard{{"before_request<br/>auth guard"}}
         subgraph routes["routes/ (one blueprint per domain)"]
+            auth["auth.py — onboarding · login · session guard"]
+            health["health.py — /api/health (public)"]
             costs["costs.py — cost CRUD + bulk-delete"]
             vehicles["vehicles.py — vehicle CRUD"]
-            settings["settings.py — currency + categories"]
-            reports["reports.py — 9 aggregation endpoints"]
+            settings["settings.py — currency · categories · MPG bounds · check time"]
+            reports["reports.py — 9 aggregation endpoints (defensive)"]
             io["importexport.py — JSON + LubeLogger CSV"]
+            reminders["reminders.py — reminder CRUD + evaluate"]
+            notify["notify.py — email (SMTP) + Home Assistant"]
         end
+        sched["scheduler.py<br/>APScheduler daily job"]
+        crypto["crypto.py<br/>Fernet secret encryption"]
+        logc["logging_config.py<br/>structured stdout logs"]
         data["data.py<br/>atomic load/save · date parsing"]
     end
 
@@ -31,21 +40,36 @@ flowchart TB
         cj[("costs.json")]
         vj[("vehicles.json")]
         sj[("settings.json")]
+        rj[("reminders.json")]
+        nj[("notify.json — secrets encrypted")]
+        aj[("auth.json")]
+        sk[("secret.key / session.key — 0600")]
     end
 
     browser -->|"/api/* (fetch)"| app
-    app --> routes
+    app --> guard --> routes
+    sched --> reminders
+    reminders --> notify
+    notify --> crypto
+    auth --> crypto
     costs --> data
     vehicles --> data
     settings --> data
     reports --> data
     io --> data
-    data --> cj & vj & sj
+    reminders --> data
+    data --> cj & vj & sj & rj
+    auth --> aj
+    notify --> nj
+    crypto --> sk
+    routes --> logc
 ```
 
 The single Gunicorn worker is deliberate — it serialises writes to the flat
 JSON files and prevents the read-modify-write races that multiple workers would
-cause (see [ADR 0002](docs/adr/0002-single-gunicorn-worker.md)).
+cause (see [ADR 0002](docs/adr/0002-single-gunicorn-worker.md)). It also makes
+the in-process reminder scheduler trivially correct: exactly one instance, no
+double-fire (see [ADR 0007](docs/adr/0007-reminders-and-in-process-scheduler.md)).
 
 ### Request flow — adding a fuel fill
 
@@ -70,7 +94,8 @@ sequenceDiagram
 
 ## Philosophy
 
-- **Simplicity over features.** Single-user home-lab tool. No auth, no multi-tenancy.
+- **Simplicity over features.** Single-user home-lab tool. One admin account
+  (no multi-tenancy); see [Authentication](#authentication).
 - **No silent failures.** Narrow `try/except` only. Errors surface explicitly.
 - **Flat JSON storage** is intentional — easy to back up, inspect, diff. Migration
   path to SQLite: replace `routes/data.py` load/save helpers only.
@@ -87,9 +112,10 @@ sequenceDiagram
 
 ```
 autoledger/
-├── app.py                    # Flask entry; blueprints; favicon; no-cache headers
-├── requirements.txt          # Pinned Python deps (Flask, Gunicorn, python-dateutil)
-├── Dockerfile                # Single Gunicorn worker (prevents JSON write races)
+├── app.py                    # Flask entry; blueprints; auth guard; scheduler start; no-cache
+├── version.py                # Single source of truth for the app version
+├── requirements.txt          # Pinned deps (Flask, Gunicorn, dateutil, argon2-cffi, cryptography, APScheduler)
+├── Dockerfile                # Single Gunicorn worker (prevents JSON write races) + HEALTHCHECK
 ├── docker-compose.yml        # Reads DATA_PATH from .env
 ├── .env                      # DATA_PATH=./data (Mac) or /volume1/... (Synology)
 ├── .dockerignore             # Excludes data/, .env, zips, docs from build context
@@ -100,19 +126,31 @@ autoledger/
 │
 ├── routes/
 │   ├── __init__.py           # Makes routes/ a Python package
-│   ├── data.py               # Atomic load/save + shared parse_date_to_iso
+│   ├── data.py               # Atomic load/save + shared parse_date_to_iso + save logging
+│   ├── logging_config.py     # Structured key=value stdout logger (log_event)
+│   ├── crypto.py             # Fernet encrypt/decrypt for at-rest secrets (secret.key)
+│   ├── auth.py               # Onboarding, login/logout, session, /api/* access guard
+│   ├── health.py             # GET /api/health (unauthenticated)
 │   ├── costs.py              # CRUD + bulk-delete + last-odometer
 │   ├── vehicles.py           # Vehicle CRUD
-│   ├── settings.py           # Currency + category list (persisted to settings.json)
-│   ├── reports.py            # 9 report aggregation endpoints
-│   └── importexport.py       # JSON export; AutoLedger JSON import; LubeLogger CSV import
+│   ├── settings.py           # Currency, categories, MPG bounds, reminder check time
+│   ├── reports.py            # 9 report aggregation endpoints (defensive numeric coercion)
+│   ├── importexport.py       # JSON export; AutoLedger JSON import; LubeLogger CSV import
+│   ├── reminders.py          # Reminder CRUD + status evaluation + notify dispatch
+│   ├── notify.py             # Email (SMTP) + Home Assistant channels; test endpoints
+│   └── scheduler.py          # APScheduler daily reminder job (in-process)
 │
-├── tests/                    # pytest suite (run via `make test`)
-│   ├── conftest.py           # Temp-dir DATA_DIR isolation + Flask test client fixtures
+├── tests/                    # pytest suite (run via `make test`) — 83 tests
+│   ├── conftest.py           # Temp-dir DATA_DIR isolation + authenticated/anon clients
 │   ├── test_dates.py         # parse_date_to_iso format precedence
 │   ├── test_efficiency.py    # MPG/km-L maths + consecutive-fill engine
 │   ├── test_importexport.py  # LubeLogger detection/mapping + JSON round-trip
-│   └── test_api.py           # Cost/vehicle/settings/reports endpoint behaviour
+│   ├── test_api.py           # Cost/vehicle/settings/reports endpoint behaviour
+│   ├── test_auth.py          # Onboarding gate, login/logout, guard, no-secret-leak
+│   ├── test_health.py        # Health endpoint (public, counts)
+│   ├── test_notify.py        # Crypto round-trip + config masking + at-rest encryption
+│   ├── test_reminders.py     # Date/mileage status, CRUD, recurrence advance
+│   └── test_robustness.py    # Bad records don't 500 reports; import skips bad rows; MPG bounds
 │
 ├── pyproject.toml            # pytest + ruff configuration
 ├── requirements-dev.txt      # Test/lint deps (pytest, ruff) on top of requirements.txt
@@ -186,12 +224,98 @@ Fuel-specific fields only present on Fuel entries. `fuel_economy` is L/100mi.
 
 ### Settings (`/data/settings.json`)
 ```json
-{ "currency_symbol": "£", "categories": ["Fuel", "Insurance", "Servicing & Repairs", "Road Tax"] }
+{
+  "currency_symbol": "£",
+  "categories": ["Fuel", "Insurance", "Servicing & Repairs", "Road Tax"],
+  "mpg_min": 10,
+  "mpg_max": 100,
+  "reminder_check_time": "08:00"
+}
 ```
+
+### Reminder (`/data/reminders.json`)
+```json
+{
+  "id": "uuid4", "vehicle_id": "uuid4",
+  "type": "MOT | Service | Tax | Insurance | Custom",
+  "label": "MOT",
+  "due_date": "YYYY-MM-DD | null",
+  "due_mileage": 60000,
+  "recur_months": 12, "recur_miles": 10000,
+  "lead_days": 30, "lead_miles": 500,
+  "notify": true, "last_notified": "YYYY-MM-DD | null",
+  "created_at": "ISO-8601"
+}
+```
+At least one of `due_date` / `due_mileage` is required. "Current mileage" is the
+highest fuel odometer for the vehicle. Status = worst of date/mileage:
+`ok` / `due` / `overdue`.
+
+### Notification config (`/data/notify.json`)
+```json
+{
+  "email": { "enabled": false, "host": "smtp.resend.com", "port": 587,
+             "username": "resend", "password": "enc:v1:…",
+             "from_addr": "…", "to_addr": "…" },
+  "homeassistant": { "enabled": false, "base_url": "http://192.168.0.200:8123",
+                     "token": "enc:v1:…", "notify_service": "" }
+}
+```
+`password` and `token` are **Fernet-encrypted** (`enc:v1:` prefix). They are
+never returned by `GET /api/notify/config` (only `*_set` booleans).
+
+### Auth + keys (gitignored, never returned by any GET)
+- `/data/auth.json` — `{ username, password_hash (argon2id), created_at }`
+- `/data/secret.key` — Fernet key for secret encryption (`0600`)
+- `/data/session.key` — Flask session-signing secret (`0600`)
+
+---
+
+## Authentication
+
+Single admin account. First run forces onboarding (no account → `403
+onboarding_required` on protected routes; the SPA shows the onboarding screen).
+After onboarding, every `/api/*` route requires a session except the public
+allow-list: `/api/health`, `/api/auth/status`, `/api/auth/login`,
+`/api/auth/onboard`. There is **no password recovery** — store the credential
+safely. Losing `secret.key` only loses the stored SMTP/HA secrets (re-enterable
+in the UI), not the cost data. See [ADR 0006](docs/adr/0006-authentication-and-at-rest-secrets.md).
+
+## Reminders & Notifications
+
+Reminders evaluate live in the UI and via an in-process APScheduler job that runs
+daily at `settings.reminder_check_time`. When a reminder is due/overdue the
+scheduler pushes a Home Assistant sensor state per reminder
+(`sensor.autoledger_<vehicle>_<type>`) and emails a digest (each channel
+independently toggleable). `last_notified` caps external notifications at one per
+reminder per day. The scheduler is disabled under tests via
+`AUTOLEDGER_DISABLE_SCHEDULER=1`. See [ADR 0007](docs/adr/0007-reminders-and-in-process-scheduler.md).
 
 ---
 
 ## API Endpoints
+
+All routes below require a session **except** `/api/health` and the
+`/api/auth/{status,login,onboard}` endpoints.
+
+| Method | Endpoint                          | Notes                                             |
+|--------|-----------------------------------|---------------------------------------------------|
+| GET    | `/api/health`                     | Public — `{status, version, vehicles, records}`   |
+| GET    | `/api/auth/status`                | Public — `{onboarded, authenticated, username}`   |
+| POST   | `/api/auth/onboard`               | First-run only — create admin (409 if exists)     |
+| POST   | `/api/auth/login`                 | `{username, password}` → session                  |
+| POST   | `/api/auth/logout`                | Clears session                                    |
+| GET    | `/api/reminders`                  | `?vehicle_id=` → list with live status            |
+| GET    | `/api/reminders/due`             | Due/overdue only (dashboard banner)               |
+| POST   | `/api/reminders`                  | Create (needs date and/or mileage)                |
+| PUT    | `/api/reminders/<id>`             | Partial update                                    |
+| DELETE | `/api/reminders/<id>`             | Idempotent                                        |
+| POST   | `/api/reminders/<id>/complete`    | Advance recurrence / clear                        |
+| POST   | `/api/reminders/evaluate`         | Manual "check now" → notify                        |
+| GET    | `/api/notify/config`              | Masked config (no secrets)                        |
+| POST   | `/api/notify/config`              | Save (blank secret = keep existing)               |
+| POST   | `/api/notify/test-email`          | Send a test email                                 |
+| POST   | `/api/notify/test-ha`             | Push a test state to Home Assistant               |
 
 | Method | Endpoint                          | Notes                                             |
 |--------|-----------------------------------|---------------------------------------------------|
@@ -319,18 +443,25 @@ Cache-busting query strings (`?v=1.8.5`) are also appended in `index.html`.
 ## Version Bump Checklist
 
 When releasing a new version, update ALL of:
-1. `app.py` docstring version
-2. `static/js/app.js` header comment version
-3. `static/index.html` HTML comment + `sidebar-version` div + `?v=` params on CSS/JS
-4. `CHANGELOG.md` — new section at top
-5. `HANDOVER.md` — version number at top
+1. `version.py` `__version__` (single source of truth — health + export read it)
+2. `app.py` docstring version
+3. `static/js/app.js` header comment version
+4. `static/index.html` HTML comment + `sidebar-version` div + `?v=` params on CSS/JS
+5. `static/css/styles.css` header comment version
+6. `CHANGELOG.md` — new section at top
+7. `HANDOVER.md` — version number at top
 
 ---
 
 ## Known Limitations
 
-- No authentication — keep behind VPN or Tailscale
+- **Single admin account, no password recovery.** Store the credential safely;
+  there is no reset flow. (The encryption key for secrets is independent, so a
+  future reset would not destroy data — see ADR 0006.)
 - No pagination — all records loaded into memory (fine at <1000 records)
 - Single currency per session — per-record currency not supported
 - Odometer in miles only — km would need a `distance_unit` setting
 - LubeLogger service/insurance split is keyword-based heuristic — imperfect
+- Reminders use a daily in-process scheduler; if the app is ever made
+  multi-worker (ADR 0002) the scheduler needs a single-instance guard (ADR 0007)
+- Logs go to stdout only (no file rotation) — the container platform owns capture

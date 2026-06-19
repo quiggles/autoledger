@@ -9,6 +9,15 @@ Endpoints:
   GET /api/reports/category?vehicle_id=&months=
   GET /api/reports/efficiency?vehicle_id=&months=
   GET /api/reports/cumulative?vehicle_id=&months=
+  ... plus costpermile / fillinterval / fuelvsother / annual
+
+Robustness (v2.0.0)
+-------------------
+Every aggregation reads ``amount`` / ``litres`` / ``odometer`` through the
+defensive ``_amount`` / ``_num`` helpers. Previously a single malformed record
+(e.g. ``amount: "n/a"`` from a bad import) raised inside an unguarded
+``float(c["amount"])`` and 500'd the **entire** report. Now a bad value is
+skipped and logged, so one rogue row can no longer take down a whole page.
 
 Changelog:
   v1.5.0  Initial — all five endpoints
@@ -17,8 +26,12 @@ Changelog:
            efficiency respects months period filter;
            MPG sanity bounds widened to 10-100 to handle diverse vehicles;
            parse_date_to_iso shared with filter for consistent date handling
+  v2.0.0  Defensive numeric coercion across all aggregations (skip + log bad
+           records instead of 500ing); MPG sanity bounds now read from settings
+           (mpg_min / mpg_max) instead of hardcoded constants.
 """
 
+import logging
 from collections import defaultdict
 from datetime import date, datetime
 
@@ -26,12 +39,75 @@ from dateutil.relativedelta import relativedelta
 from flask import Blueprint, jsonify, request
 
 from .data import load_data, parse_date_to_iso
+from .logging_config import log_event
+from .settings import load_settings
 
 reports_bp = Blueprint("reports", __name__)
 
 LITRES_PER_GALLON = 4.54609
-MPG_MIN = 10
-MPG_MAX = 100
+
+# Fallback MPG sanity bounds used only if settings somehow lack them. The live
+# values come from settings (mpg_min / mpg_max) via _mpg_bounds().
+DEFAULT_MPG_MIN = 10
+DEFAULT_MPG_MAX = 100
+
+
+# ── Defensive numeric coercion ────────────────────────────────────────────────
+
+def _amount(record: dict) -> float | None:
+    """
+    Return a record's ``amount`` as a float, or ``None`` if it is missing or
+    malformed. A malformed value is logged (not swallowed silently) and skipped
+    by the caller, so one bad record cannot crash an entire aggregation.
+    """
+    raw = record.get("amount")
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        log_event(
+            "bad_amount_skipped",
+            level=logging.WARNING,
+            id=record.get("id"),
+            value=raw,
+        )
+        return None
+
+
+def _num(record: dict, field: str) -> float | None:
+    """
+    Return ``record[field]`` as a float, or ``None`` if missing/malformed.
+    Used for ``litres`` and ``odometer``. Logs malformed values for visibility.
+    """
+    raw = record.get(field)
+    if raw is None or raw == "":
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        log_event(
+            "bad_number_skipped",
+            level=logging.WARNING,
+            id=record.get("id"),
+            field=field,
+            value=raw,
+        )
+        return None
+
+
+def _mpg_bounds() -> tuple[float, float]:
+    """
+    Read the configurable MPG sanity bounds from settings, falling back to the
+    historical 10–100 defaults if they are absent or invalid.
+    """
+    s = load_settings()
+    try:
+        lo = float(s.get("mpg_min", DEFAULT_MPG_MIN))
+        hi = float(s.get("mpg_max", DEFAULT_MPG_MAX))
+        if lo < hi:
+            return lo, hi
+    except (TypeError, ValueError):
+        pass
+    return DEFAULT_MPG_MIN, DEFAULT_MPG_MAX
 
 
 # ── Date helpers ──────────────────────────────────────────────────────────────
@@ -72,16 +148,28 @@ def _compute_efficiency(vehicle_costs: list, cutoff_date: str | None = None) -> 
     is always calculated from the correct previous fill), then filters
     results to cutoff_date for display.
 
+    Numeric fields are coerced defensively — a fill whose litres/odometer/amount
+    cannot be parsed is excluded rather than raising.
+
     Returns records with:
       id, date, mpg, kpl, ppl, litres, odometer, miles, amount
     """
-    fills = [
-        c for c in vehicle_costs
-        if c.get("category") == "Fuel"
-        and c.get("is_full_tank")
-        and c.get("litres") and float(c["litres"]) > 0
-        and c.get("odometer") and float(c["odometer"]) > 0
-    ]
+    mpg_min, mpg_max = _mpg_bounds()
+
+    # Build the candidate list defensively: a fill must be Fuel, flagged
+    # full-tank, and have parseable positive litres + odometer. Bad numeric
+    # values are dropped here (via _num) rather than crashing the comprehension.
+    fills = []
+    for c in vehicle_costs:
+        if c.get("category") != "Fuel" or not c.get("is_full_tank"):
+            continue
+        litres = _num(c, "litres")
+        odo = _num(c, "odometer")
+        if not litres or litres <= 0 or not odo or odo <= 0:
+            continue
+        # Cache the parsed values so we do not re-coerce below.
+        c = {**c, "_litres": litres, "_odo": odo}
+        fills.append(c)
 
     # Normalise dates and sort chronologically
     for f in fills:
@@ -90,20 +178,20 @@ def _compute_efficiency(vehicle_costs: list, cutoff_date: str | None = None) -> 
 
     results = []
     for i, fill in enumerate(fills):
-        litres = float(fill["litres"])
-        odo    = float(fill["odometer"])
-        amount = float(fill["amount"])
+        litres = fill["_litres"]
+        odo    = fill["_odo"]
+        amount = _amount(fill) or 0.0
         ppl    = round(amount / litres, 3) if litres else None
         mpg    = None
         kpl    = None
         miles  = None
 
         if i > 0:
-            prev_odo = float(fills[i - 1]["odometer"])
+            prev_odo = fills[i - 1]["_odo"]
             miles    = round(odo - prev_odo, 1)
             if miles > 0:
                 raw_mpg = _mpg(litres, miles)
-                if raw_mpg and MPG_MIN <= raw_mpg <= MPG_MAX:
+                if raw_mpg and mpg_min <= raw_mpg <= mpg_max:
                     mpg = raw_mpg
                     kpl = _kpl(mpg)
 
@@ -145,7 +233,8 @@ def report_summary():
     if cut:
         costs = [c for c in all_vehicle_costs if parse_date_to_iso(c.get("date", "")) >= cut]
 
-    total_spend = sum(float(c["amount"]) for c in costs)
+    # Defensive sum: skip records whose amount cannot be parsed.
+    total_spend = sum(a for a in (_amount(c) for c in costs) if a is not None)
 
     iso_dates = sorted(parse_date_to_iso(c["date"]) for c in costs if c.get("date"))
     if len(iso_dates) >= 2:
@@ -157,8 +246,8 @@ def report_summary():
         avg_monthly = total_spend
 
     fuel_costs       = [c for c in costs if c.get("category") == "Fuel"]
-    total_litres     = sum(float(c["litres"]) for c in fuel_costs if c.get("litres"))
-    total_fuel_spend = sum(float(c["amount"]) for c in fuel_costs)
+    total_litres     = sum(n for n in (_num(c, "litres") for c in fuel_costs) if n is not None)
+    total_fuel_spend = sum(a for a in (_amount(c) for c in fuel_costs) if a is not None)
     avg_ppl = round(total_fuel_spend / total_litres, 3) if total_litres else None
 
     # Efficiency uses full history (not period-filtered) for correct consecutive pairs
@@ -200,9 +289,12 @@ def report_monthly():
     for c in costs:
         if not c.get("date"):
             continue
+        amt = _amount(c)
+        if amt is None:
+            continue
         month = parse_date_to_iso(c["date"])[:7]
         cat   = c.get("category", "Other")
-        monthly[month][cat] += float(c["amount"])
+        monthly[month][cat] += amt
         categories.add(cat)
 
     today      = date.today()
@@ -236,7 +328,10 @@ def report_category():
     costs  = _filter(vehicle_id, months or None)
     totals = defaultdict(float)
     for c in costs:
-        totals[c.get("category", "Other")] += float(c["amount"])
+        amt = _amount(c)
+        if amt is None:
+            continue
+        totals[c.get("category", "Other")] += amt
 
     sorted_cats = sorted(totals.items(), key=lambda x: x[1], reverse=True)
     return jsonify({
@@ -287,7 +382,10 @@ def report_cumulative():
     running = 0.0
     points  = []
     for c in costs:
-        running += float(c["amount"])
+        amt = _amount(c)
+        if amt is None:
+            continue
+        running += amt
         points.append({"date": parse_date_to_iso(c["date"]), "total": round(running, 2)})
 
     return jsonify(points)
@@ -320,18 +418,23 @@ def report_cost_per_mile():
     for c in all_costs:
         if not c.get("date"):
             continue
+        amt = _amount(c)
+        if amt is None:
+            continue
         iso = parse_date_to_iso(c["date"])
         if cut and iso < cut:
             continue
-        monthly_spend[iso[:7]] += float(c["amount"])
+        monthly_spend[iso[:7]] += amt
 
-    # Get all fuel entries with odometer, sorted chronologically
-    fuel_odo = [
-        c for c in all_costs
-        if c.get("category") == "Fuel"
-        and c.get("odometer")
-        and c.get("date")
-    ]
+    # Get all fuel entries with a parseable odometer, sorted chronologically
+    fuel_odo = []
+    for c in all_costs:
+        if c.get("category") != "Fuel" or not c.get("date"):
+            continue
+        odo = _num(c, "odometer")
+        if odo is None:
+            continue
+        fuel_odo.append({**c, "_odo": odo})
     fuel_odo.sort(key=lambda c: parse_date_to_iso(c.get("date", "")))
 
     if len(fuel_odo) < 2:
@@ -341,7 +444,7 @@ def report_cost_per_mile():
     month_last_odo = {}
     for c in fuel_odo:
         month = parse_date_to_iso(c["date"])[:7]
-        month_last_odo[month] = float(c["odometer"])
+        month_last_odo[month] = c["_odo"]
 
     # Calculate CPM for each month that has spend and an odometer span
     result_months, result_cpm = [], []
@@ -433,11 +536,14 @@ def report_fuel_vs_other():
     for c in costs:
         if not c.get("date"):
             continue
+        amt = _amount(c)
+        if amt is None:
+            continue
         month = parse_date_to_iso(c["date"])[:7]
         if c.get("category") == "Fuel":
-            fuel_by_month[month]  += float(c["amount"])
+            fuel_by_month[month]  += amt
         else:
-            other_by_month[month] += float(c["amount"])
+            other_by_month[month] += amt
 
     today      = date.today()
     all_months = []
@@ -482,17 +588,23 @@ def report_annual():
     for c in all_costs:
         if not c.get("date"):
             continue
+        amt = _amount(c)
+        if amt is None:
+            continue
         year = parse_date_to_iso(c["date"])[:4]
         cat  = c.get("category", "Other")
-        yearly[year][cat]     += float(c["amount"])
-        yearly[year]["_total"] += float(c["amount"])
+        yearly[year][cat]     += amt
+        yearly[year]["_total"] += amt
 
     # Miles driven per year from odometer
-    fuel_odo = [
-        (parse_date_to_iso(c.get("date",""))[:4], float(c["odometer"]))
-        for c in all_costs
-        if c.get("category") == "Fuel" and c.get("odometer")
-    ]
+    fuel_odo = []
+    for c in all_costs:
+        if c.get("category") != "Fuel":
+            continue
+        odo = _num(c, "odometer")
+        if odo is None:
+            continue
+        fuel_odo.append((parse_date_to_iso(c.get("date", ""))[:4], odo))
     miles_by_year = {}
     for year, odo in fuel_odo:
         if year not in miles_by_year:
