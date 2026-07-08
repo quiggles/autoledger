@@ -3,7 +3,7 @@
 > Canonical reference for any developer or future AI session picking up this
 > project. Read before touching code. Update with every release.
 
-**Current version:** 2.0.0
+**Current version:** 2.0.1
 **Stack:** Flask + Python + flat JSON storage + Chart.js frontend; Argon2id auth,
 Fernet at-rest secret encryption, APScheduler in-process reminder scheduler
 **Deployment:** Docker on Mac (dev) or Synology DS923+ NAS (prod)

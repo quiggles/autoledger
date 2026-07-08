@@ -148,64 +148,82 @@ def _compute_efficiency(vehicle_costs: list, cutoff_date: str | None = None) -> 
     is always calculated from the correct previous fill), then filters
     results to cutoff_date for display.
 
+    A partial (non-full) top-up between two full-tank fills still burns fuel
+    over that same odometer span, so its litres are folded into the *next*
+    full-tank fill's total before computing MPG — otherwise the distance
+    covers fuel that was never counted, inflating MPG (v2.1.0 fix; previously
+    only the full-tank fill's own litres were used, understating consumption
+    whenever a partial fill sat in between).
+
     Numeric fields are coerced defensively — a fill whose litres/odometer/amount
     cannot be parsed is excluded rather than raising.
 
     Returns records with:
-      id, date, mpg, kpl, ppl, litres, odometer, miles, amount
+      id, date, mpg, kpl, ppl, litres, litres_used, odometer, miles, amount
     """
     mpg_min, mpg_max = _mpg_bounds()
 
-    # Build the candidate list defensively: a fill must be Fuel, flagged
-    # full-tank, and have parseable positive litres + odometer. Bad numeric
-    # values are dropped here (via _num) rather than crashing the comprehension.
-    fills = []
+    # Build the candidate list defensively: any Fuel record with parseable,
+    # positive litres is a candidate — full-tank fills anchor a result row and
+    # reset the accumulator; partial fills only ever contribute their litres
+    # to whichever full-tank fill comes next. Bad numeric values are dropped
+    # here (via _num) rather than crashing the comprehension.
+    candidates = []
     for c in vehicle_costs:
-        if c.get("category") != "Fuel" or not c.get("is_full_tank"):
+        if c.get("category") != "Fuel":
             continue
         litres = _num(c, "litres")
-        odo = _num(c, "odometer")
-        if not litres or litres <= 0 or not odo or odo <= 0:
+        if not litres or litres <= 0:
             continue
-        # Cache the parsed values so we do not re-coerce below.
-        c = {**c, "_litres": litres, "_odo": odo}
-        fills.append(c)
+        c = {**c, "_litres": litres, "_odo": _num(c, "odometer")}
+        candidates.append(c)
 
     # Normalise dates and sort chronologically
-    for f in fills:
+    for f in candidates:
         f["_iso"] = parse_date_to_iso(f.get("date", ""))
-    fills.sort(key=lambda c: c["_iso"])
+    candidates.sort(key=lambda c: c["_iso"])
 
     results = []
-    for i, fill in enumerate(fills):
-        litres = fill["_litres"]
-        odo    = fill["_odo"]
-        amount = _amount(fill) or 0.0
-        ppl    = round(amount / litres, 3) if litres else None
-        mpg    = None
-        kpl    = None
-        miles  = None
+    prev_odo       = None
+    pending_litres = 0.0
+    for fill in candidates:
+        pending_litres += fill["_litres"]
 
-        if i > 0:
-            prev_odo = fills[i - 1]["_odo"]
-            miles    = round(odo - prev_odo, 1)
+        if not fill.get("is_full_tank") or not fill["_odo"] or fill["_odo"] <= 0:
+            continue  # partial fill (or bad odometer) — litres carried forward only
+
+        litres      = fill["_litres"]       # this fill's own litres, for ppl
+        litres_used = pending_litres         # this fill's + any partials since last full
+        odo         = fill["_odo"]
+        amount      = _amount(fill) or 0.0
+        ppl         = round(amount / litres, 3) if litres else None
+        mpg         = None
+        kpl         = None
+        miles       = None
+
+        if prev_odo is not None:
+            miles = round(odo - prev_odo, 1)
             if miles > 0:
-                raw_mpg = _mpg(litres, miles)
+                raw_mpg = _mpg(litres_used, miles)
                 if raw_mpg and mpg_min <= raw_mpg <= mpg_max:
                     mpg = raw_mpg
                     kpl = _kpl(mpg)
 
         results.append({
-            "id":       fill.get("id"),   # included so frontend can match by ID
-            "date":     fill["_iso"],
-            "mpg":      mpg,
-            "kpl":      kpl,
-            "ppl":      ppl,
-            "litres":   litres,
-            "odometer": odo,
-            "amount":   amount,
-            "miles":    miles,
+            "id":          fill.get("id"),   # included so frontend can match by ID
+            "date":        fill["_iso"],
+            "mpg":         mpg,
+            "kpl":         kpl,
+            "ppl":         ppl,
+            "litres":      litres,
+            "litres_used": round(litres_used, 3),
+            "odometer":    odo,
+            "amount":      amount,
+            "miles":       miles,
         })
+
+        prev_odo       = odo
+        pending_litres = 0.0
 
     # Apply date filter AFTER computing so consecutive-fill pairs are correct
     if cutoff_date:

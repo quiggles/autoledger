@@ -239,6 +239,7 @@ def logout():
 # API paths that never require authentication. Everything else under /api/ does.
 _PUBLIC_API_PATHS = frozenset({
     "/api/health",
+    "/api/public/stats",
     "/api/auth/status",
     "/api/auth/login",
     "/api/auth/onboard",

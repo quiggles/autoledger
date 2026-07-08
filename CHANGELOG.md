@@ -5,6 +5,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.1.0] - 2026-07-08
+
+### Added
+- **Public aggregate-stats endpoint** (`routes/public.py`, `GET
+  /api/public/stats`). Unauthenticated, aggregate-only JSON for external
+  dashboards — added so the home-lab Homepage dashboard can show a live
+  AutoLedger tile via its generic `customapi` widget (Homepage has no native
+  AutoLedger widget). Returns a flat object of scalars: `vehicles`, `entries`,
+  `ytd_spend` (current calendar year, all vehicles combined), and
+  `reminders_due` (count of due/overdue reminders). On the auth guard's public
+  allow-list, mirroring `/api/health`; exposes no per-record or per-vehicle
+  detail. Amounts are coerced defensively (a malformed row is skipped + logged,
+  never 500s the tile) and the endpoint returns 503 `degraded` if storage is
+  unreadable. Covered by `tests/test_public.py`.
+
+---
+
+## [2.0.1] - 2026-07-08
+
+### Fixed
+- **MPG/efficiency miscalculation when a partial fill sits between two full
+  tanks** (`routes/reports.py` `_compute_efficiency`). The full-to-full
+  odometer span was correct, but only the closing fill's own litres were used
+  to compute MPG — any partial top-up in between had its litres silently
+  dropped, understating fuel used and inflating MPG (seen live: a 721 mi span
+  with a 51.65 L partial fill reported ~61 MPG instead of the correct ~31
+  MPG). Litres from partial fills now accumulate and are folded into the next
+  full-tank fill's total before computing MPG/km-L. A new `litres_used` field
+  is returned alongside `litres` (the fill's own amount, still used for
+  price-per-litre) and threaded through to the frontend's L/100mi fallback
+  calculation (`static/js/app.js`), which had the same flaw. Average/best MPG
+  and yearly MPG figures update automatically since they consume the
+  corrected values. Added `test_partial_fill_between_full_fills_counted_in_mpg`
+  to guard the fix.
+
+---
+
 ## [2.0.0] - 2026-06-19
 
 Major release: the app is now authenticated, observable, more robust, and can

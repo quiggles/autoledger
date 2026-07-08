@@ -1,8 +1,10 @@
 <!DOCTYPE html>
 <!--
-  AutoLedger — index.html  v2.0.0
+  AutoLedger — index.html  v2.0.1
   ================================
   Changelog:
+    v2.0.1  MPG/efficiency fix — partial fills between full tanks now count
+            toward fuel used (see CHANGELOG.md)
     v2.0.0  Authentication gate (first-run onboarding + login/logout);
             reminders (service/MOT/tax/insurance) with dashboard banner;
             settings expanded with MPG bounds, reminder schedule, and
@@ -21,7 +23,7 @@
   <link rel="icon" href="/favicon.ico" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/styles.css?v=2.0.0">
+  <link rel="stylesheet" href="/static/css/styles.css?v=2.0.1">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
@@ -122,7 +124,7 @@
         <span class="account-user" id="account-user" title="Signed in">—</span>
         <button class="btn btn-ghost btn-sm" id="logout-btn" onclick="logout()">Sign out</button>
       </div>
-      <div class="sidebar-version">v2.0.0</div>
+      <div class="sidebar-version">v2.0.1</div>
     </div>
   </aside>
 
@@ -654,6 +656,6 @@
 </div>
 
 <div class="toast" id="toast"></div>
-<script src="/static/js/app.js?v=2.0.0"></script>
+<script src="/static/js/app.js?v=2.0.1"></script>
 </body>
 </html>

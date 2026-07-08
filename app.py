@@ -32,6 +32,7 @@ from routes.health import health_bp
 from routes.importexport import io_bp
 from routes.logging_config import configure_logging, log_event
 from routes.notify import notify_bp
+from routes.public import public_bp
 from routes.reminders import reminders_bp
 from routes.reports import reports_bp
 from routes.scheduler import start_scheduler
@@ -71,6 +72,7 @@ app.register_blueprint(settings_bp,  url_prefix="/api")
 app.register_blueprint(vehicles_bp,  url_prefix="/api")
 app.register_blueprint(reports_bp,   url_prefix="/api")
 app.register_blueprint(notify_bp,    url_prefix="/api")
+app.register_blueprint(public_bp,    url_prefix="/api")
 app.register_blueprint(reminders_bp, url_prefix="/api")
 
 # Install the authentication guard on all /api/* routes (except the public

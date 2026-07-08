@@ -1,6 +1,10 @@
 /**
- * AutoLedger — app.js  v2.0.0
+ * AutoLedger — app.js  v2.0.1
  * ============================
+ *
+ * v2.0.1: fuelData()/getMpgMap() now use litres_used (this fill + any partial
+ *   top-ups since the last full tank) instead of just this fill's own litres
+ *   for the L/100mi fallback, matching the backend efficiency fix.
  *
  * v2.0.0 additions:
  *   AUTHENTICATION — bootAuth() checks /api/auth/status and shows the onboarding
@@ -479,9 +483,10 @@ async function getMpgMap() {
     data.forEach(e => {
       if (e.id) {
         // v1.6.0+ records include the ID directly — reliable match
-        if (e.mpg)   map[e.id]                = e.mpg;
-        if (e.kpl)   map[`${e.id}_kpl`]       = e.kpl;
-        if (e.miles) map[`${e.id}_miles`]      = e.miles;
+        if (e.mpg)         map[e.id]                     = e.mpg;
+        if (e.kpl)         map[`${e.id}_kpl`]             = e.kpl;
+        if (e.miles)       map[`${e.id}_miles`]           = e.miles;
+        if (e.litres_used) map[`${e.id}_litres_used`]     = e.litres_used;
       } else {
         // Fallback for older records: match by date + odometer
         const match = costs.find(c =>
@@ -492,9 +497,10 @@ async function getMpgMap() {
           Math.abs(parseFloat(c.odometer) - e.odometer) < 1
         );
         if (match) {
-          if (e.mpg)   map[match.id]            = e.mpg;
-          if (e.kpl)   map[`${match.id}_kpl`]   = e.kpl;
-          if (e.miles) map[`${match.id}_miles`]  = e.miles;
+          if (e.mpg)         map[match.id]                 = e.mpg;
+          if (e.kpl)         map[`${match.id}_kpl`]         = e.kpl;
+          if (e.miles)       map[`${match.id}_miles`]       = e.miles;
+          if (e.litres_used) map[`${match.id}_litres_used`] = e.litres_used;
         }
       }
     });
@@ -522,16 +528,20 @@ function fuelData(c, mpgMap) {
   const amount   = parseFloat(c.amount);
 
   // Efficiency from MPG map (consecutive full-tank calculation)
-  const delta = mpgMap[`${c.id}_miles`] || null;
-  const mpg   = mpgMap[c.id]            || null;
-  const kpl   = mpgMap[`${c.id}_kpl`]   || null;
+  const delta      = mpgMap[`${c.id}_miles`]       || null;
+  const mpg        = mpgMap[c.id]                  || null;
+  const kpl        = mpgMap[`${c.id}_kpl`]         || null;
+  const litresUsed = mpgMap[`${c.id}_litres_used`] || null;
 
-  // L/100mi: prefer stored fuel_economy (from LubeLogger), fall back to calculated
+  // L/100mi: prefer stored fuel_economy (from LubeLogger), fall back to calculated.
+  // Uses litresUsed (this fill + any partial top-ups since the last full tank),
+  // not just this fill's own litres, or a partial fill in between silently
+  // halves the apparent fuel used and doubles the reported economy.
   let economy = null;
   if (c.fuel_economy && parseFloat(c.fuel_economy) > 0) {
     economy = parseFloat(c.fuel_economy).toFixed(3);
-  } else if (litres && delta && delta > 0) {
-    economy = ((litres / delta) * 100).toFixed(3);
+  } else if (litresUsed && delta && delta > 0) {
+    economy = ((litresUsed / delta) * 100).toFixed(3);
   }
 
   // Price per litre: prefer stored unit_cost, fall back to amount/litres

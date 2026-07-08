@@ -112,6 +112,37 @@ def test_cutoff_filters_display_but_keeps_pairing():
     assert res[0]["mpg"] is not None  # pairing survived the filter
 
 
+def test_partial_fill_between_full_fills_counted_in_mpg():
+    """
+    A partial top-up between two full-tank fills still burns fuel over that
+    same odometer span. Its litres must be folded into the *next* full-tank
+    fill's total, or MPG is computed from too little fuel and comes out
+    roughly double what the car actually does (the bug this test guards).
+    """
+    fills = [
+        _fill("2024-01-01", 1000, 45),               # full tank, anchor
+        _fill("2024-01-10", 1200, 20, full=False),    # partial top-up
+        _fill("2024-01-20", 1400, 45),                # full tank, 400 mi later
+    ]
+    res = _compute_efficiency(fills)
+
+    # The partial fill gets no result row of its own.
+    assert len(res) == 2
+    assert res[1]["miles"] == 400.0
+
+    # MPG must reflect ALL fuel used over the 400 miles: the partial's 20L
+    # plus the closing full fill's 45L = 65L, not just the 45L.
+    expected_litres_used = 20 + 45
+    expected_mpg = round(400 / (expected_litres_used / LITRES_PER_GALLON), 2)
+    assert res[1]["litres_used"] == expected_litres_used
+    assert res[1]["mpg"] == expected_mpg
+
+    # A naive (buggy) calculation using only the closing fill's 45L would
+    # yield a visibly higher, implausible MPG for the same distance.
+    buggy_mpg = _mpg(45, 400)
+    assert res[1]["mpg"] < buggy_mpg
+
+
 def test_non_full_tank_and_missing_fields_excluded():
     fills = [
         _fill("2024-01-01", 1000, 45, full=False),   # not full tank

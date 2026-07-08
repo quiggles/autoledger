@@ -11,4 +11,4 @@ Update this one constant on every release, then follow the Version Bump
 Checklist in HANDOVER.md for the frontend/changelog touch-points.
 """
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
