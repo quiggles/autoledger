@@ -1,6 +1,9 @@
 /**
- * AutoLedger — app.js  v2.0.1
+ * AutoLedger — app.js  v2.1.1
  * ============================
+ *
+ * v2.1.1: dependency security patch only (see CHANGELOG.md) — no frontend
+ *   behaviour change.
  *
  * v2.0.1: fuelData()/getMpgMap() now use litres_used (this fill + any partial
  *   top-ups since the last full tank) instead of just this fill's own litres

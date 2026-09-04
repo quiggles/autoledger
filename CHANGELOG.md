@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.1.1] - 2026-09-04
+
+### Security
+- **`cryptography` 42.0.8 -> 50.0.1**, closing 7 CVEs against its OpenSSL
+  backend — the package Fernet (this app's at-rest secret encryption) is
+  built on. `pip-audit` reported the highest-severity advisory required
+  `>=49.0.0`; no `42.x`/`43.x`/etc. release fixes it. Verified: a standalone
+  Fernet encrypt/decrypt round-trip under 50.0.1, all 88 tests pass, and the
+  7 tests in `test_notify.py` that exercise encrypted-at-rest secrets pass
+  unchanged.
+- **`flask` 3.0.3 -> 3.1.3**, closing a low-severity session-header issue
+  (`Vary: Cookie` not always set).
+- **`pytest` 8.2.2 -> 9.1.1** (dev-only), closing a medium-severity tmpdir
+  CVE that couldn't be addressed while the pin excluded the fixed version.
+- `pip-audit` against both `requirements.txt` and `requirements-dev.txt`:
+  0 known vulnerabilities, down from 9 distinct advisories (7 high/critical
+  scoped to `cryptography` across the two manifest files, plus the two
+  lower-severity ones above).
+
+No API, schema, or behaviour change — this release is dependency-version
+only. The static asset version labels (`index.html`, `app.js`, `styles.css`)
+also catch up to the app's actual version here: they had been left at
+`2.0.1` since before the 2.1.0 release.
+
 ## [2.1.0] - 2026-07-08
 
 ### Added
