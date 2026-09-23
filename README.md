@@ -338,9 +338,13 @@ See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ---
 
-## Attribution
+## System Development Credits
 
-This project was fully coded by AI ([Claude](https://claude.ai) by Anthropic) through prompting and direction by **Gary Quigley**. No manual code was written — every line was generated via conversational prompting.
+This system was conceived, specified and directed by the user acting as
+the system architect. The implementation — code, tests, documentation
+and deployment scaffolding — was carried out by Claude (Anthropic),
+working under direct instruction. No manual code was written —
+every line was generated via conversational prompting.
 
 ---
 

@@ -466,3 +466,8 @@ When releasing a new version, update ALL of:
 - Reminders use a daily in-process scheduler; if the app is ever made
   multi-worker (ADR 0002) the scheduler needs a single-instance guard (ADR 0007)
 - Logs go to stdout only (no file rotation) — the container platform owns capture
+
+## System Development Credits
+
+See the System Development Credits section in `README.md` for authorship
+details.
