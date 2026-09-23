@@ -79,24 +79,35 @@ def start_scheduler() -> None:
         return
 
     # Read the configured time lazily (settings import pulls in the data layer).
+    from .clock import household_tz
     from .settings import load_settings
     hh, mm = _parse_time(load_settings().get("reminder_check_time", _DEFAULT_TIME))
+    # Anchor the daily time to the household timezone (v2.2.0). Without an
+    # explicit zone APScheduler used the container's UTC, so "08:00" fired at
+    # 09:00 local all summer.
+    tz = household_tz()
 
-    _scheduler = BackgroundScheduler(daemon=True)
+    _scheduler = BackgroundScheduler(daemon=True, timezone=tz)
     _scheduler.add_job(
         _run_daily_job,
-        CronTrigger(hour=hh, minute=mm),
+        CronTrigger(hour=hh, minute=mm, timezone=tz),
         id=_JOB_ID,
         replace_existing=True,
     )
     _scheduler.start()
-    log_event("scheduler_started", at=f"{hh:02d}:{mm:02d}")
+    log_event("scheduler_started", at=f"{hh:02d}:{mm:02d}", tz=str(tz))
 
 
 def reschedule_daily(time_str: str) -> None:
-    """Move the daily job to a new ``HH:MM`` time (called when settings change)."""
+    """Move the daily job to ``HH:MM`` in the current household timezone.
+
+    Called when either the check time or the timezone setting changes, after
+    the new settings are saved, so it re-reads the zone.
+    """
     if _scheduler is None:
         return
+    from .clock import household_tz
     hh, mm = _parse_time(time_str)
-    _scheduler.reschedule_job(_JOB_ID, trigger=CronTrigger(hour=hh, minute=mm))
-    log_event("scheduler_rescheduled", at=f"{hh:02d}:{mm:02d}")
+    tz = household_tz()
+    _scheduler.reschedule_job(_JOB_ID, trigger=CronTrigger(hour=hh, minute=mm, timezone=tz))
+    log_event("scheduler_rescheduled", at=f"{hh:02d}:{mm:02d}", tz=str(tz))

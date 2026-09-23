@@ -23,10 +23,10 @@ Changelog:
            helpers; date normalised to ISO on POST/PUT; atomic writes via data.py
 """
 
-from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 
+from .clock import local_now
 from .data import load_data, make_id, parse_date_to_iso, save_data
 from .settings import load_settings
 
@@ -88,7 +88,7 @@ def add_cost():
     except (KeyError, TypeError, ValueError):
         return jsonify({"error": "amount must be a non-negative number"}), 400
 
-    raw_date = body.get("date", datetime.now().strftime("%Y-%m-%d"))
+    raw_date = body.get("date", local_now().strftime("%Y-%m-%d"))
     entry = {
         "id":         make_id(),
         "vehicle_id": vehicle_id,

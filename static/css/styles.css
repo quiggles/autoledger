@@ -1,10 +1,11 @@
 /*
- * AutoLedger — styles.css  v2.1.2
+ * AutoLedger — styles.css  v2.2.0
  * =================================
  * Light mode default. Dark mode via html.dark class.
  * All colours via CSS custom properties — never hardcoded in components.
  *
  * Changelog:
+ *   v2.2.0  No style change (time zone picker reuses .field).
  *   v2.1.2  Build hygiene only (.dockerignore) — no style change.
  *   v2.1.1  Dependency security patch only (see CHANGELOG.md) — no style
  *           change.

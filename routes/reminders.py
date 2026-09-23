@@ -57,6 +57,7 @@ from dateutil.relativedelta import relativedelta
 from flask import Blueprint, jsonify, request
 
 from . import notify
+from .clock import local_now, local_today
 from .data import _load_json, _save_json, load_data, load_vehicles, make_id
 from .logging_config import log_event
 
@@ -143,7 +144,7 @@ def evaluate_reminder(rem: dict, current_mileage: float | None,
       current_mileage
       message        — human-readable summary
     """
-    today = today or date.today()
+    today = today or local_today()
     statuses = []   # collected sub-statuses; overall = worst of them
     days_until = None
     miles_until = None
@@ -244,7 +245,7 @@ def evaluate_and_notify(force: bool = False) -> dict:
     vehicles = {v["id"]: v for v in load_vehicles()}
     costs = load_data()
     reminders = load_reminders()
-    today_iso = date.today().isoformat()
+    today_iso = local_today().isoformat()
 
     ha_enabled = cfg["homeassistant"].get("enabled")
     email_enabled = cfg["email"].get("enabled")
@@ -337,7 +338,7 @@ def _build_reminder(body: dict, existing: dict | None = None) -> dict:
     rem = dict(existing) if existing else {
         "id":            make_id(),
         "last_notified": None,
-        "created_at":    datetime.now().isoformat(),
+        "created_at":    local_now().isoformat(),
     }
 
     if "vehicle_id" in body or not existing:
@@ -461,7 +462,7 @@ def complete_reminder(rem_id):
                 base = datetime.strptime(r["due_date"], "%Y-%m-%d").date()
                 # Advance from the later of the due date or today so a long-overdue
                 # item lands in the future, not the past.
-                anchor = max(base, date.today())
+                anchor = max(base, local_today())
                 r["due_date"] = (anchor + relativedelta(months=int(r["recur_months"]))).isoformat()
             elif r.get("due_date"):
                 r["due_date"] = None

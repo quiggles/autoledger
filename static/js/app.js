@@ -1,7 +1,8 @@
 /**
- * AutoLedger — app.js  v2.1.2
+ * AutoLedger — app.js  v2.2.0
  * ============================
  *
+ * v2.2.0: time zone picker (renderTimezoneOptions) in Settings.
  * v2.1.2: build hygiene only (.dockerignore) — no frontend behaviour change.
  * v2.1.1: dependency security patch only (see CHANGELOG.md) — no frontend
  *   behaviour change.
@@ -1599,6 +1600,8 @@ async function saveSettings() {
   if (!Number.isNaN(mpgMax)) settings.mpg_max = mpgMax;
   const t = document.getElementById('set-reminder-time').value;
   if (t) settings.reminder_check_time = t;
+  const tz = document.getElementById('set-timezone').value;
+  if (tz) settings.timezone = tz;
 
   try {
     const res = await fetch('/api/settings', {
@@ -1645,6 +1648,36 @@ function renderPreferences() {
   if (min)  min.value  = settings.mpg_min  ?? 10;
   if (max)  max.value  = settings.mpg_max  ?? 100;
   if (time) time.value = settings.reminder_check_time || '08:00';
+  renderTimezoneOptions(settings.timezone || 'Europe/London');
+}
+
+/**
+ * Fill the time-zone picker (v2.2.0). Uses the browser's own list of IANA
+ * zones where available; the server validates whatever is chosen. The saved
+ * zone is always present as an option, even on a browser that can't list
+ * zones, so saving the page never silently changes it.
+ */
+function renderTimezoneOptions(current) {
+  const select = document.getElementById('set-timezone');
+  if (!select) return;
+  let zones = [];
+  try {
+    zones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [];
+  } catch (e) {
+    console.warn('Could not list time zones from the browser', e);
+  }
+  if (!zones.includes(current)) zones = [current, ...zones];
+  // Rebuild only when the list changed, to keep the user's scroll position.
+  if (select.options.length !== zones.length) {
+    select.innerHTML = '';
+    for (const z of zones) {
+      const opt = document.createElement('option');
+      opt.value = z;
+      opt.textContent = z.replace(/_/g, ' ');
+      select.appendChild(opt);
+    }
+  }
+  select.value = current;
 }
 
 const COMMON_CURRENCIES = [

@@ -31,12 +31,12 @@ import csv
 import io
 import json
 import logging
-from datetime import datetime
 
 from flask import Blueprint, Response, jsonify, request
 
 from version import __version__
 
+from .clock import local_now
 from .data import load_data, load_vehicles, make_id, parse_date_to_iso, save_data, save_vehicles
 from .logging_config import log_event
 
@@ -91,7 +91,7 @@ def _map_lubelogger_row(row: dict, record_type: str, vehicle_id: str) -> dict:
     if not raw_date:
         d = h.get("day",   "1").zfill(2)
         m = h.get("month", "1").zfill(2)
-        y = h.get("year",  str(datetime.now().year))
+        y = h.get("year",  str(local_now().year))
         raw_date = f"{y}-{m}-{d}"
     date = parse_date_to_iso(raw_date)
 
@@ -197,13 +197,13 @@ def export_json():
     payload  = {
         "app":          "AutoLedger",
         "version":      __version__,
-        "exported_at":  datetime.now().isoformat(),
+        "exported_at":  local_now().isoformat(),
         "vehicle_count": len(vehicles),
         "record_count": len(costs),
         "vehicles":     vehicles,
         "records":      costs,
     }
-    filename = f"autoledger-export-{datetime.now().strftime('%Y%m%d')}.json"
+    filename = f"autoledger-export-{local_now().strftime('%Y%m%d')}.json"
     return Response(
         json.dumps(payload, indent=2),
         mimetype="application/json",

@@ -18,6 +18,8 @@ Changelog:
            /api/health + Docker HEALTHCHECK; structured logging; configurable
            MPG bounds; service/MOT/tax/insurance reminders with Home Assistant
            + email notifications driven by an in-process daily scheduler.
+  v2.2.0  Time zone setting (default Europe/London): the daily reminder job,
+           'today' and timestamps follow it instead of the container's UTC.
   v2.1.2  Build hygiene: .dockerignore keeps data/, .env and .git out of
            the image (they were baked in by COPY . .). No code change.
   v2.1.1  Dependency security patch: cryptography 42.0.8 -> 50.0.1 (closes

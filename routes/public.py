@@ -40,10 +40,10 @@ endpoint returns 503 so a monitor sees a hard failure, mirroring ``/api/health``
 from __future__ import annotations
 
 import logging
-from datetime import date
 
 from flask import Blueprint, jsonify
 
+from .clock import local_today
 from .data import load_data, load_vehicles, parse_date_to_iso
 from .logging_config import log_event
 from .reminders import list_with_status
@@ -95,7 +95,7 @@ def public_stats():
     # Year-to-date spend: sum of parseable amounts whose (normalised) date falls
     # in the current calendar year. parse_date_to_iso handles the several date
     # formats the importers accept; a record with no/undated value is ignored.
-    this_year = str(date.today().year)
+    this_year = str(local_today().year)
     ytd_spend = 0.0
     for c in costs:
         raw_date = c.get("date")

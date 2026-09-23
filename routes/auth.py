@@ -44,12 +44,12 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from flask import Blueprint, jsonify, request, session
 
+from .clock import local_now
 from .data import _load_json, _save_json
 from .logging_config import log_event
 
@@ -175,7 +175,7 @@ def onboard():
     record = {
         "username":      username,
         "password_hash": _hasher.hash(password),
-        "created_at":    datetime.now().isoformat(),
+        "created_at":    local_now().isoformat(),
     }
     save_auth(record)
     session["user"] = username

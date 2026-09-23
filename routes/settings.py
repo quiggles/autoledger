@@ -24,10 +24,14 @@ Changelog:
            10–100 limits.
 """
 
+import logging
+
 from flask import Blueprint, jsonify, request
 
 # Settings live in the same volume as the cost data; reuse the shared atomic I/O.
+from .clock import is_valid_timezone
 from .data import SETTINGS_FILE, _load_json, _save_json
+from .logging_config import log_event
 
 settings_bp = Blueprint("settings", __name__)
 
@@ -52,6 +56,8 @@ DEFAULT_SETTINGS = {
     # reminders and sends notifications. Human-readable in the UI; stored as a
     # simple HH:MM string. Changing it reschedules the job live (see scheduler).
     "reminder_check_time": "08:00",
+    # IANA zone for "today", timestamps and the daily reminder time (v2.2.0).
+    "timezone": "Europe/London",
 }
 
 
@@ -67,7 +73,11 @@ def load_settings() -> dict:
         if not isinstance(stored, dict):
             return dict(DEFAULT_SETTINGS)
         return {**DEFAULT_SETTINGS, **stored}
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - defaults keep the app usable; logged loudly
+        # Previously silent. A damaged settings file quietly reverted every
+        # preference (currency, MPG bounds, reminder time, now the timezone) to
+        # defaults with no trace. Keep the fallback but make it visible.
+        log_event("settings_load_failed", level=logging.ERROR, error=str(exc))
         return dict(DEFAULT_SETTINGS)
 
 
@@ -141,24 +151,34 @@ def save_settings_route():
         current["mpg_min"] = round(new_min, 1)
         current["mpg_max"] = round(new_max, 1)
 
-    # ── Validate and apply the daily reminder check time ──────────────────────
+    # ── Validate the daily reminder check time and the household timezone ──────
+    reschedule = False
     if "reminder_check_time" in body:
         t = (body.get("reminder_check_time") or "").strip()
         if not _valid_hhmm(t):
             return jsonify({"error": "reminder_check_time must be HH:MM (24-hour)"}), 400
+        reschedule = reschedule or t != current.get("reminder_check_time")
         current["reminder_check_time"] = t
-        # Reschedule the live job immediately so the new time takes effect
-        # without a container restart. Imported lazily to avoid pulling the
-        # scheduler (and APScheduler) into every settings read.
-        try:
-            from .scheduler import reschedule_daily
-            reschedule_daily(t)
-        except Exception:
-            # A scheduler that is not running (e.g. under tests) must not block
-            # a settings save — the new time is persisted regardless.
-            pass
+    if "timezone" in body:
+        tz_name = (body.get("timezone") or "").strip()
+        if not is_valid_timezone(tz_name):
+            return jsonify({"error": f"Unknown timezone {tz_name!r} — use an IANA name such as Europe/London"}), 400
+        reschedule = reschedule or tz_name != current.get("timezone")
+        current["timezone"] = tz_name
 
     save_settings(current)
+
+    # Reschedule the live job after saving (reschedule_daily re-reads the zone
+    # from settings), so a new time or zone takes effect without a restart. It
+    # is a no-op when no scheduler is running (e.g. under tests). Any other
+    # failure is logged, not swallowed: the settings are saved regardless.
+    if reschedule:
+        from .scheduler import reschedule_daily
+        try:
+            reschedule_daily(current["reminder_check_time"])
+        except Exception as exc:  # noqa: BLE001 - logged loudly, save already succeeded
+            log_event("scheduler_reschedule_failed", level=logging.ERROR, error=str(exc))
+
     return jsonify(current)
 
 

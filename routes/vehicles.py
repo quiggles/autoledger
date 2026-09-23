@@ -26,10 +26,10 @@ Changelog:
   v1.4.0  Initial — full CRUD; cascade delete option
 """
 
-from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 
+from .clock import local_now
 from .data import load_data, load_vehicles, make_id, save_data, save_vehicles
 
 vehicles_bp = Blueprint("vehicles", __name__)
@@ -77,7 +77,7 @@ def add_vehicle():
     if year is not None:
         try:
             year = int(year)
-            if year < 1886 or year > datetime.now().year + 2:
+            if year < 1886 or year > local_now().year + 2:
                 raise ValueError
         except (TypeError, ValueError):
             return jsonify({"error": "year must be a valid 4-digit year"}), 400
@@ -91,7 +91,7 @@ def add_vehicle():
         "colour":       (body.get("colour")       or "").strip(),
         "registration": (body.get("registration") or "").strip().upper(),
         "notes":        (body.get("notes")        or "").strip(),
-        "created_at":   datetime.now().isoformat(),
+        "created_at":   local_now().isoformat(),
     }
 
     vehicles = load_vehicles()

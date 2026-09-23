@@ -33,11 +33,12 @@ Changelog:
 
 import logging
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import datetime
 
 from dateutil.relativedelta import relativedelta
 from flask import Blueprint, jsonify, request
 
+from .clock import local_today
 from .data import load_data, parse_date_to_iso
 from .logging_config import log_event
 from .settings import load_settings
@@ -114,7 +115,7 @@ def _mpg_bounds() -> tuple[float, float]:
 
 def _cutoff(months: int) -> str:
     """Return ISO date string `months` ago from today."""
-    return (date.today() - relativedelta(months=months)).strftime("%Y-%m-%d")
+    return (local_today() - relativedelta(months=months)).strftime("%Y-%m-%d")
 
 
 def _filter(vehicle_id: str, months: int | None) -> list:
@@ -315,7 +316,7 @@ def report_monthly():
         monthly[month][cat] += amt
         categories.add(cat)
 
-    today      = date.today()
+    today      = local_today()
     all_months = []
     if months > 0:
         for i in range(months - 1, -1, -1):
@@ -563,7 +564,7 @@ def report_fuel_vs_other():
         else:
             other_by_month[month] += amt
 
-    today      = date.today()
+    today      = local_today()
     all_months = []
     if months > 0:
         for i in range(months - 1, -1, -1):

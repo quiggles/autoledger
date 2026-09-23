@@ -5,6 +5,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.2.0] - 2026-09-23
+
+### Added
+- **Time zone setting** (Settings → Reminder Schedule → Time zone; default
+  `Europe/London`). The picker lists the browser's IANA zones, and the server
+  rejects unknown names with a 400.
+
+### Fixed
+- **The daily reminder check ran an hour late all summer.** The APScheduler
+  job had no timezone, so "08:00" meant 08:00 UTC, which is 09:00 BST. The job
+  now runs in the configured zone, and changing the zone or the time
+  reschedules it immediately.
+- **"Today" was the server's date.** The container runs in UTC, so from 00:00
+  to 01:00 BST it was still yesterday. That affected reminder due-ness,
+  year-to-date totals at New Year, report windows, the default date for a new
+  cost, and export file names. All 15 `date.today()` / naive `datetime.now()`
+  calls now use `routes/clock.py` (`local_today()` / `local_now()`). Stored
+  `created_at` / `exported_at` timestamps now include a UTC offset. Existing
+  records without one still sort correctly.
+- **Settings failures were silent.** A damaged settings file silently reverted
+  every preference to defaults, and a failed reschedule was swallowed by
+  `except: pass`. Both are now logged as errors; the fallback behaviour is
+  unchanged.
+
+### Tests
+- `tests/test_timezone.py`: 12 tests covering both sides of the BST midnight
+  hour, a GMT night, a non-UK zone, validation, the bad-file fallback, and the
+  scheduler receiving the configured zone. 100 pass.
+
+---
+
 ## [2.1.2] - 2026-09-23
 
 ### Security
