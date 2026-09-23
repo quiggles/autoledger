@@ -7,6 +7,9 @@
 **Stack:** Flask + Python + flat JSON storage + Chart.js frontend; Argon2id auth,
 Fernet at-rest secret encryption, APScheduler in-process reminder scheduler
 **Deployment:** Docker on Mac (dev) or Synology DS923+ NAS (prod)
+**Other docs:** [USER-GUIDE.md](USER-GUIDE.md) for people using the app (non-technical;
+update it whenever a screen or workflow changes), [README.md](README.md) for installing
+and running it.
 
 ---
 
@@ -128,6 +131,7 @@ autoledger/
 │   ├── __init__.py           # Makes routes/ a Python package
 │   ├── data.py               # Atomic load/save + shared parse_date_to_iso + save logging
 │   ├── logging_config.py     # Structured key=value stdout logger (log_event)
+│   ├── clock.py              # local_today()/local_now() in the household time zone (ADR 0009)
 │   ├── crypto.py             # Fernet encrypt/decrypt for at-rest secrets (secret.key)
 │   ├── auth.py               # Onboarding, login/logout, session, /api/* access guard
 │   ├── health.py             # GET /api/health (unauthenticated)
@@ -229,9 +233,13 @@ Fuel-specific fields only present on Fuel entries. `fuel_economy` is L/100mi.
   "categories": ["Fuel", "Insurance", "Servicing & Repairs", "Road Tax"],
   "mpg_min": 10,
   "mpg_max": 100,
-  "reminder_check_time": "08:00"
+  "reminder_check_time": "08:00",
+  "timezone": "Europe/London"
 }
 ```
+
+`timezone` (v2.2.0) is an IANA name validated with `zoneinfo` on save. See
+[ADR 0009](docs/adr/0009-household-timezone-setting.md).
 
 ### Reminder (`/data/reminders.json`)
 ```json
@@ -284,12 +292,18 @@ in the UI), not the cost data. See [ADR 0006](docs/adr/0006-authentication-and-a
 ## Reminders & Notifications
 
 Reminders evaluate live in the UI and via an in-process APScheduler job that runs
-daily at `settings.reminder_check_time`. When a reminder is due/overdue the
+daily at `settings.reminder_check_time` **in `settings.timezone`**. Saving either
+setting reschedules the live job. When a reminder is due/overdue the
 scheduler pushes a Home Assistant sensor state per reminder
 (`sensor.autoledger_<vehicle>_<type>`) and emails a digest (each channel
 independently toggleable). `last_notified` caps external notifications at one per
 reminder per day. The scheduler is disabled under tests via
 `AUTOLEDGER_DISABLE_SCHEDULER=1`. See [ADR 0007](docs/adr/0007-reminders-and-in-process-scheduler.md).
+
+**Dates and times: always use `routes/clock.py`.** `local_today()` and
+`local_now()` answer in the household time zone. Never call `date.today()` or
+naive `datetime.now()`: the container runs in UTC, so the server's date is a
+day behind for the first hour after midnight in summer ([ADR 0009](docs/adr/0009-household-timezone-setting.md)).
 
 ---
 

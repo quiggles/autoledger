@@ -29,6 +29,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `except: pass`. Both are now logged as errors; the fallback behaviour is
   unchanged.
 
+### Documentation
+- **New `USER-GUIDE.md`**, one of the project's required documents, which was
+  missing. It is a plain-English, task-based guide for day-to-day users: signing
+  in, logging fuel and costs, reminders (including **✓ Mark done** for repeating
+  ones), reports, backups, LubeLogger import, settings, a symptom-first "Something
+  went wrong" section and a glossary. Each behaviour it describes was checked
+  against the code, and a few surprises are spelled out: a JSON export does not
+  include reminders or settings; "Delete vehicle only" hides the car's entries
+  from every view; repeating reminders only advance on Mark done.
+- README: links the user guide; version badge, test counts and health example
+  brought up to date; the time zone is listed under Settings; the NAS example
+  uses placeholders instead of a real LAN address.
+- ADR 0009: the household time zone setting. HANDOVER covers the
+  `routes/clock.py` rule.
+
 ### Tests
 - `tests/test_timezone.py`: 12 tests covering both sides of the BST midnight
   hour, a GMT night, a non-UK zone, validation, the bad-file fallback, and the

@@ -2,9 +2,12 @@
 
 A self-hosted car running cost tracker. Track fuel, insurance, servicing and other vehicle expenses with full fuel efficiency analysis (MPG, km/L) and spending reports.
 
+> **Just using AutoLedger?** The [User Guide](USER-GUIDE.md) explains every
+> everyday task in plain English. This README is for whoever installs and runs it.
+
 Built with Flask + Python + flat JSON storage. Runs in Docker on Mac, Windows, Linux, or a Synology NAS.
 
-![AutoLedger Dashboard](https://img.shields.io/badge/version-2.0.0-blue) ![Docker](https://img.shields.io/badge/docker-ready-green) ![License](https://img.shields.io/badge/license-MIT-brightgreen)
+![AutoLedger Dashboard](https://img.shields.io/badge/version-2.2.0-blue) ![Docker](https://img.shields.io/badge/docker-ready-green) ![License](https://img.shields.io/badge/license-MIT-brightgreen)
 
 ---
 
@@ -19,8 +22,10 @@ Built with Flask + Python + flat JSON storage. Runs in Docker on Mac, Windows, L
 - **Fuel efficiency analysis** — MPG and km/L from consecutive full-tank fills,
   with configurable sanity bounds for very efficient or very thirsty vehicles
 - **LubeLogger import** — import your existing fuel history from LubeLogger CSV exports
-- **9 reports** — monthly spend, category breakdown, cumulative spend, MPG trend, km/L trend, price-per-litre trend, cost-per-mile, fill-up interval, fuel vs other costs, annual breakdown table
+- **10 reports** — monthly spend, category breakdown, cumulative spend, MPG trend, km/L trend, price-per-litre trend, cost-per-mile, fill-up interval, fuel vs other costs, annual breakdown table
 - **UK date format** — DD/MM/YYYY throughout
+- **Time zone aware** — "today", timestamps and the daily reminder check follow
+  a configurable time zone (default Europe/London), not the server's clock
 - **Light/dark mode** — defaults to your OS preference; switchable and saved in browser
 - **Health endpoint** — `GET /api/health` + a Docker `HEALTHCHECK` for monitoring
   (Container Radar, Homepage siteMonitor, Portainer)
@@ -89,7 +94,7 @@ Then open **http://localhost:5050** in your browser.
 
 ```bash
 # SSH into your NAS
-ssh admin@192.168.0.100
+ssh <your-nas-user>@<your-nas-ip>
 
 # Create directories
 mkdir -p /volume1/docker/autoledger/data
@@ -105,7 +110,7 @@ echo "DATA_PATH=/volume1/docker/autoledger/data" > .env
 docker compose up -d --build
 ```
 
-App will be at `http://192.168.0.100:5050`
+App will be at `http://<your-nas-ip>:5050`
 
 ---
 
@@ -122,7 +127,7 @@ DATA_PATH=/volume1/docker/autoledger/data
 ```
 
 All other settings (currency, categories, efficiency bounds, reminder schedule,
-and notifications) are managed through the app's **Settings** page.
+time zone and notifications) are managed through the app's **Settings** page.
 
 ---
 
@@ -179,7 +184,7 @@ requires **no authentication**, so monitors can poll it:
 
 ```bash
 curl http://localhost:5050/api/health
-# {"status":"ok","version":"2.0.0","vehicles":2,"records":418}
+# {"status":"ok","version":"2.2.0","vehicles":2,"records":418}
 ```
 
 The Docker image also defines a `HEALTHCHECK`, so `docker ps` / Portainer /
@@ -276,10 +281,11 @@ autoledger/
 ├── Dockerfile              # + HEALTHCHECK
 ├── docker-compose.yml
 ├── .env.example            # Config template (data path, optional secrets) — copy to .env
-├── docs/adr/               # Architecture Decision Records (0001–0008)
+├── docs/adr/               # Architecture Decision Records (0001–0009)
 ├── routes/
 │   ├── data.py             # Shared JSON load/save helpers
 │   ├── logging_config.py   # Structured stdout logging
+│   ├── clock.py            # "Today"/now in the household time zone
 │   ├── crypto.py           # At-rest secret encryption (Fernet)
 │   ├── auth.py             # Onboarding, login/logout, API access guard
 │   ├── health.py           # /api/health
@@ -291,7 +297,7 @@ autoledger/
 │   ├── reminders.py        # Reminder CRUD + status evaluation
 │   ├── notify.py           # Email + Home Assistant channels
 │   └── scheduler.py        # Daily reminder job
-├── tests/                  # pytest suite (83 tests) — run via `make test`
+├── tests/                  # pytest suite (100 tests) — run via `make test`
 └── static/
     ├── index.html          # Single-page app shell
     ├── css/styles.css      # All styles (light + dark mode)
@@ -306,7 +312,8 @@ The project ships a `Makefile` with standard targets:
 
 ```bash
 make run     # build + run in Docker (http://localhost:5050)
-make test    # pytest suite on Python 3.12 in Docker (83 tests)
+make test    # pytest suite on Python 3.12 in Docker (100 tests)
+make image-check  # build the image and prove no data/secrets are baked in
 make lint    # ruff
 make fmt     # ruff format (opt-in — not run across the aligned-column codebase)
 make clean   # remove caches / local venv (never touches ./data)
@@ -329,6 +336,17 @@ DATA_DIR=./data flask --app app run --port 5050 --debug
 pip install -r requirements.txt
 $env:DATA_DIR="./data"; flask --app app run --port 5050 --debug
 ```
+
+---
+
+## Documentation
+
+| Document | For |
+|---|---|
+| [USER-GUIDE.md](USER-GUIDE.md) | People using AutoLedger day to day (non-technical) |
+| [HANDOVER.md](HANDOVER.md) | Whoever maintains the code next |
+| [docs/adr/](docs/adr/) | Why the non-obvious decisions were made |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each version |
 
 ---
 
