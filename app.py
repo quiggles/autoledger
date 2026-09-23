@@ -18,6 +18,8 @@ Changelog:
            /api/health + Docker HEALTHCHECK; structured logging; configurable
            MPG bounds; service/MOT/tax/insurance reminders with Home Assistant
            + email notifications driven by an in-process daily scheduler.
+  v2.1.2  Build hygiene: .dockerignore keeps data/, .env and .git out of
+           the image (they were baked in by COPY . .). No code change.
   v2.1.1  Dependency security patch: cryptography 42.0.8 -> 50.0.1 (closes
            7 CVEs against Fernet's OpenSSL backend), flask 3.0.3 -> 3.1.3,
            pytest 8.2.2 -> 9.1.1 (dev only). No API or behaviour change;

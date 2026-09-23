@@ -1,7 +1,8 @@
 /**
- * AutoLedger — app.js  v2.1.1
+ * AutoLedger — app.js  v2.1.2
  * ============================
  *
+ * v2.1.2: build hygiene only (.dockerignore) — no frontend behaviour change.
  * v2.1.1: dependency security patch only (see CHANGELOG.md) — no frontend
  *   behaviour change.
  *

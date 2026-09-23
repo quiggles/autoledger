@@ -3,7 +3,7 @@
 > Canonical reference for any developer or future AI session picking up this
 > project. Read before touching code. Update with every release.
 
-**Current version:** 2.1.1
+**Current version:** 2.1.2
 **Stack:** Flask + Python + flat JSON storage + Chart.js frontend; Argon2id auth,
 Fernet at-rest secret encryption, APScheduler in-process reminder scheduler
 **Deployment:** Docker on Mac (dev) or Synology DS923+ NAS (prod)
@@ -118,7 +118,7 @@ autoledger/
 ├── Dockerfile                # Single Gunicorn worker (prevents JSON write races) + HEALTHCHECK
 ├── docker-compose.yml        # Reads DATA_PATH from .env
 ├── .env                      # DATA_PATH=./data (Mac) or /volume1/... (Synology)
-├── .dockerignore             # Excludes data/, .env, zips, docs from build context
+├── .dockerignore             # Code-only image: excludes data/, .env, .git, tests, docs (v2.1.2; verify with `make image-check`)
 ├── CHANGELOG.md              # Version history
 ├── HANDOVER.md               # This file
 ├── Makefile                  # setup / run / test / lint / fmt / clean targets
@@ -450,6 +450,7 @@ When releasing a new version, update ALL of:
 5. `static/css/styles.css` header comment version
 6. `CHANGELOG.md` — new section at top
 7. `HANDOVER.md` — version number at top
+8. Run `make image-check` before deploying: it fails if data/, .env, .git or any key file ends up in the image
 
 ---
 

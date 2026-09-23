@@ -1,10 +1,11 @@
 /*
- * AutoLedger — styles.css  v2.1.1
+ * AutoLedger — styles.css  v2.1.2
  * =================================
  * Light mode default. Dark mode via html.dark class.
  * All colours via CSS custom properties — never hardcoded in components.
  *
  * Changelog:
+ *   v2.1.2  Build hygiene only (.dockerignore) — no style change.
  *   v2.1.1  Dependency security patch only (see CHANGELOG.md) — no style
  *           change.
  *   v2.0.0  Auth gate (onboarding/login); reminders banner, cards & form;

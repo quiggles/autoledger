@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.1.2] - 2026-09-23
+
+### Security
+- **Runtime secrets were baked into the Docker image.** The Dockerfile uses
+  `COPY . .` and the repo had no `.dockerignore`. HANDOVER listed one, but it
+  was never committed. Every image therefore carried the live `data/`
+  directory (`secret.key`, `session.key`, `auth.json` and all cost records),
+  plus `.env` and the full `.git` history. The running app never used that
+  copy, because the `/data` volume sits over it, but anyone holding the image
+  could read the keys from a layer. The image was only ever built locally and
+  never pushed to a registry. Added a `.dockerignore` so the image holds
+  application code only.
+
+### Added
+- `make image-check`: builds a throwaway image and fails if `data/`, `.env`,
+  `.git`, `tests/` or any `secret.key` / `session.key` / `auth.json` is
+  inside, then smoke-imports the app. Confirmed it fails without the new
+  `.dockerignore` and passes with it.
+
+---
+
 ## [2.1.1] - 2026-09-04
 
 ### Security

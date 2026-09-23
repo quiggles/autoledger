@@ -1,0 +1,47 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# AutoLedger .dockerignore
+#
+# The Dockerfile uses `COPY . .`, so anything not excluded here is baked into
+# the image. Before v2.1.2 there was no .dockerignore, and the image carried
+# the live data/ directory (secret.key, session.key, auth.json and every cost
+# record), plus .env and the whole .git history. At runtime the /data volume
+# hides that copy, but anyone holding the image (`docker save`, a registry
+# push, a shared host) could read the keys straight out of a layer.
+#
+# Rule: the image gets application code only. Runtime state lives on the /data
+# volume (DATA_DIR); configuration arrives through the environment.
+# `make image-check` verifies the sensitive paths are absent from a fresh build.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Runtime state and secrets: must never enter an image layer.
+data/
+.env
+.env.*
+*.key
+
+# Version control and editor/OS noise.
+.git/
+.gitignore
+.DS_Store
+.claude/
+
+# Development-only: tests, tooling, caches, docs. Not needed to run the app.
+tests/
+docs/
+requirements-dev.txt
+pyproject.toml
+Makefile
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+*.log
+
+# Build definition and prose docs (not read by the running app).
+Dockerfile
+.dockerignore
+docker-compose.yml
+*.md

@@ -18,7 +18,7 @@ PORT    ?= 5050
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup run run-local test lint fmt clean
+.PHONY: help setup run run-local test lint fmt image-check clean
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -52,6 +52,21 @@ lint:  ## Lint Python with ruff (Python 3.12 in Docker)
 
 fmt:  ## Auto-format Python with ruff (Python 3.12 in Docker)
 	$(DOCKER_PY) "pip install -q ruff==0.5.1 && ruff format ."
+
+# Build a throwaway image and prove no runtime state or secrets were baked in
+# (see .dockerignore, v2.1.2). Then smoke-import the app so an over-eager
+# exclusion that drops real code fails here rather than at deploy time.
+IMAGE_CHECK_TAG := autoledger:image-check
+
+image-check:  ## Build the image and verify no data/secrets/.git are baked in
+	docker build -q -t $(IMAGE_CHECK_TAG) . >/dev/null
+	docker run --rm --entrypoint sh $(IMAGE_CHECK_TAG) -c '\
+		leaked=""; \
+		for p in data .env .git tests; do [ -e "/app/$$p" ] && leaked="$$leaked $$p"; done; \
+		found=$$(find / -xdev \( -name secret.key -o -name session.key -o -name auth.json \) 2>/dev/null); \
+		if [ -n "$$leaked$$found" ]; then echo "FAIL: baked into image:$$leaked $$found"; exit 1; fi; \
+		python -c "import app" && echo "OK: image contains code only, app imports cleanly"'
+	docker rmi -f $(IMAGE_CHECK_TAG) >/dev/null
 
 clean:  ## Remove caches and the local virtualenv (never touches ./data)
 	rm -rf $(VENV) .ruff_cache
